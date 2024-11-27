@@ -3,6 +3,7 @@ from transformers import GPT2Tokenizer, GPT2LMHeadModel
 from logits_processor import SemLogits
 from utils import get_word_tokens_not_in_cmu, rhymes_to_numeric_tokens, get_syl_items, get_semantic_items, get_rhyme_and_syl_data
 from poem_generator import generator
+import json
 
 
 
@@ -25,7 +26,6 @@ class PoemAgent():
     self.tool_lib = ['cos_sim', 'verse_size', 'num_verses', ' no_repeat', 'blacklist', 'num_syl', 'rhyme', 'scheme']
 
     # initialise workspace
-
     self.active_tools = {tool : False for tool in self.tool_lib}
 
     # define default configurations
@@ -35,7 +35,10 @@ class PoemAgent():
     print('default configuration: \n number of lines = 4 \n no other restrictions')
 
     # load valid vocabulary
-    self.word_tokens_not_in_cmu, self.word_tokens_in_cmu = get_word_tokens_not_in_cmu(self.vocab)
+    with open('data/vocab/GPT2_tokens_in_cmu', 'r') as f:
+      self.word_tokens_in_cmu = f.read().split('\n')[:-1]
+    with open('data/vocab/GPT2_tokens_not_in_cmu', 'r') as f:
+      self.word_tokens_not_in_cmu = f.read().split('\n')[:-1]
     self.active_tools.update({'word_tokens_not_in_cmu' : self.word_tokens_not_in_cmu, 'word_tokens_in_cmu' : self.word_tokens_in_cmu})
 
     # create slot for rhyme
@@ -43,7 +46,8 @@ class PoemAgent():
 
     # dictionary of words sorted by rhyming part, dictionary of tokens that dont rhyme sorted by syllable
     # and dictionary of tokens with polisyllable rhyme, also sorted by syllable
-    self.rhyme_dict_to_numeric_tokens, self.tokens_that_dont_rhyme, self.tokens_polisylabic_rhyme = rhymes_to_numeric_tokens(self.word_tokens_in_cmu, self.vocab)
+    with open('data/rhyme/tokens_that_rhyme', 'r') as f:
+      self.rhyme_dict_to_numeric_tokens = json.loads(f.read())
 
     # create slot for syllables
     self.active_tools['num_syl'] = {'active' : False}
