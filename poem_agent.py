@@ -32,6 +32,7 @@ class PoemAgent():
     self.active_tools['num_verses'] = num_verses
     self.active_tools['no_repeat'] = no_repeat
     self.active_tools['verse_size'] = verse_size
+
     print('default configuration: \n number of lines = 4 \n no other restrictions')
 
     # load valid vocabulary
@@ -53,7 +54,10 @@ class PoemAgent():
     self.active_tools['num_syl'] = {'active' : False}
 
     # dictionary of tokens with their syllable count, and dictionary of tokens sorted by syllable
-    self.numeric_tokens_to_syl, self.syl_to_numeric_tokens = get_syl_items(self.word_tokens_in_cmu, self.vocab)
+    with open('data/meter/tokens_to_number_of_syllables', 'r') as f:
+      self.numeric_tokens_to_syl = json.loads(f.read())
+    with open('data/meter/number_of_syllables_to_tokens', 'r') as f:
+      self.syl_to_numeric_tokens = json.loads(f.read())
     self.active_tools['num_syl'].update({'numeric_tokens_to_syl' : self.numeric_tokens_to_syl, 'syl_to_numeric_tokens' : self.syl_to_numeric_tokens})
 
     # get combined data of rhymes and syllables
