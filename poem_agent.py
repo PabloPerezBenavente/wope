@@ -88,15 +88,15 @@ class PoemAgent():
           # if word was already in memory, only update wave parameters
           if token in self.active_tools['cos_sim'].keys():
             if len(rule) == 4:
-              self.active_tools['cos_sim'][token].update({'intensity': int(rule[2]), 'period': int(rule[3])})
+              self.active_tools['cos_sim'][token].update({'intensity': int(rule[2]), 'frequency': int(rule[3])})
 
           # if word was not in memory, create a slot, compute vocab of similar tokens and save wave parameters
           else:
             self.active_tools['cos_sim'].update({token: {'vocab': get_semantic_items(token, self.vocab, self.model)}})
             if len(rule) == 4:
-              self.active_tools['cos_sim'][token].update({'intensity': int[rule[2]], 'period': int(rule[3])})
+              self.active_tools['cos_sim'][token].update({'intensity': int(rule[2]), 'frequency': int(rule[3])})
             if len(rule) == 2:
-              self.active_tools['cos_sim'][token].update({'intensity': int(6), 'period': int(3)})
+              self.active_tools['cos_sim'][token].update({'intensity': int(6), 'frequency': int(3)})
 
           return True
 
