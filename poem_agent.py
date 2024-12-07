@@ -62,6 +62,8 @@ class PoemAgent():
 
     # get combined data of rhymes and syllables
     self.rhyme_and_syl_dict, self.no_rhyme_and_syl_dict = get_rhyme_and_syl_data(self.rhyme_dict_to_numeric_tokens, self.numeric_tokens_to_syl)
+    print(self.rhyme_and_syl_dict)
+    print(self.no_rhyme_and_syl_dict)
     self.active_tools['rhyme'].update({'rhyme_and_syl_dict': self.rhyme_and_syl_dict, 'no_rhyme_syl_dict': self.no_rhyme_and_syl_dict})
 
   def check_workspace(self):
