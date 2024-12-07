@@ -96,7 +96,7 @@ class MasterLogits(LogitsProcessor):
           for keyword in self.keywords:
 
             # if current prediction is at time step that is multiple of keyword frequency, boost tokens related to keyword
-            if (len(beam_input_ids.tolist()) - self.first_prediction) % self.cos_sim_dict[keyword]['frequency'] == 0:
+            if (len(beam_input_ids.tolist()) - self.first_prediction) % self.cos_sim_dict[keyword]['period'] == 0:
               semantic_tokens_to_boost_in_one_beam.append(self.cos_sim_dict[keyword]['vocab'])
               #print(f"boosting at timestep {len(beam_input_ids.tolist())}")
 
