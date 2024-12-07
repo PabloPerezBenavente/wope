@@ -57,122 +57,117 @@ class PoemAgent():
     with open('data/meter/tokens_to_number_of_syllables', 'r') as f:
       self.numeric_tokens_to_syl = json.loads(f.read())
     with open('data/meter/number_of_syllables_to_tokens', 'r') as f:
-      self.syl_to_numeric_tokens = json.loads(f.read())
+      self.syl_to_numeric_tokens = json.loads(f.read()) # WARNING: this reads token ids as strings rather than ints, which might cause problems somewhere down the pipeline
     self.active_tools['num_syl'].update({'numeric_tokens_to_syl' : self.numeric_tokens_to_syl, 'syl_to_numeric_tokens' : self.syl_to_numeric_tokens})
 
     # get combined data of rhymes and syllables
-    self.rhyme_and_syl_dict, self.no_rhyme_and_syl_dict = get_rhyme_and_syl_data(self.rhyme_dict_to_numeric_tokens, self.numeric_tokens_to_syl)
-    print(self.rhyme_and_syl_dict)
-    print(self.no_rhyme_and_syl_dict)
+    with open('data/rhyme/tokens_with_rhyme_and_syllable_count', 'r') as f:
+      self.rhyme_and_syl_dict = json.loads(f.read())
+    with open('data/rhyme/no_rhyme_and_syl_data', 'r') as f:
+      self.no_rhyme_and_syl_dict = json.loads(f.read())
     self.active_tools['rhyme'].update({'rhyme_and_syl_dict': self.rhyme_and_syl_dict, 'no_rhyme_syl_dict': self.no_rhyme_and_syl_dict})
 
   def check_workspace(self):
-    print(self.active_tools)
-
-
+    output = {"message": self.active_tools}
+    return output
 
   def introduce_rule(self, rule):
 
     # check the rule is valid
     if rule[0] not in self.tool_lib:
-      print('that tool has not been implemented yet!')
+      e = "that tool doesn't exist"
+      raise Exception(e)
 
-    else:
-
-      if rule[0] == 'cos_sim':
-
-        # check that the input word is contained in vocabulary
-        for token in list(self.vocab.keys()):
-          if rule[1] == token.strip(' Ġ'):
-            token_in_vocab = True
-            cos_sim_word = token
-            break
-          else:
-            token_in_vocab = False
-        if not token_in_vocab:
-          print(f'sorry, {rule[1]} is not in the vocabulary')
-        else:
+    if rule[0] == 'cos_sim':
+      # check that the input word is contained in vocabulary
+      for token in list(self.vocab.keys()):
+        if rule[1] == token.strip(' Ġ'):
           if not self.active_tools['cos_sim']:
             self.active_tools['cos_sim'] = {}
 
-          word = cos_sim_word
-
-          # if word is in memory:
-          if word in self.active_tools['cos_sim'].keys():
-            if len(rule) == 2:
-              pass
-            # only update wave dimensions
+          # if word was already in memory, only update wave parameters
+          if token in self.active_tools['cos_sim'].keys():
             if len(rule) == 4:
-              self.active_tools['cos_sim'][word].update({'intensity' : int(rule[2]), 'frequency' : int(rule[3])})
+              self.active_tools['cos_sim'][token].update({'intensity': int(rule[2]), 'period': int(rule[3])})
 
-          #if word is not in memory
+          # if word was not in memory, create a slot, compute vocab of similar tokens and save wave parameters
           else:
-
-            # create slot dictionary for word
-            word_config = {word : {}}
-
-            # introduce specified or default wave dimensions
+            self.active_tools['cos_sim'].update({token: {'vocab': get_semantic_items(token, self.vocab, self.model)}})
             if len(rule) == 4:
-              word_config[word].update({'intensity' : int(rule[2]), 'frequency' : int(rule[3])})
+              self.active_tools['cos_sim'][token].update({'intensity': int[rule[2]], 'period': int(rule[3])})
             if len(rule) == 2:
-              word_config[word].update({'intensity' : int(6), 'frequency' : int(3)})
+              self.active_tools['cos_sim'][token].update({'intensity': int(6), 'period': int(3)})
 
-            # get vocab of close tokens
-            related_tokens = get_semantic_items(word, self.vocab, self.model)
-            word_config[word].update({'vocab' : related_tokens})
+          return True
 
-            # add word config to memory
-            self.active_tools['cos_sim'].update(word_config)
+      # raise error if word isn't contained in vocab
+      e = "the specified word isn't contained within GPT2's vocab"
+      raise Exception(e)
 
-      if rule[0] == 'verse_size':
-        self.active_tools['verse_size'] = rule[1]
+    if rule[0] == 'verse_size':
+      self.active_tools['verse_size'] = rule[1]
 
-      if rule[0] == 'rhyme':
+      return True
 
-        # if rhyme is set in 'hard mode' (end of verse)
-        if type(rule[1]) == list:
+    if rule[0] == 'rhyme':
 
-          self.active_tools['rhyme'].update({'active' : True, 'type' : 'hard', 'list_scheme' : rule[1], 'rhyme_scheme' : {}})
+      # if rhyme is set in 'hard mode' group verses by rhyme type
+      if type(rule[1]) == list:
 
-          # create dictionary for rhyme scheme, where verses are grouped by rhyme types
-          for n, rhyme_type in enumerate(rule[1]):
-            try:
-              self.active_tools['rhyme']['rhyme_scheme'][rhyme_type]['verses'].append(n)
-            except KeyError:
-              self.active_tools['rhyme']['rhyme_scheme'][rhyme_type] = {'verses' : [n], 'rhyming_words' : [], 'rhyming_part' : []}
+        # WARNING: 'active' key should be unnecessary
+        self.active_tools['rhyme'].update({'active' : True, 'type' : 'hard', 'list_scheme' : rule[1], 'rhyme_scheme' : {}})
+        for n, rhyme_type in enumerate(rule[1]):
+          try:
+            self.active_tools['rhyme']['rhyme_scheme'][rhyme_type]['verses'].append(n)
+          except KeyError:
+            self.active_tools['rhyme']['rhyme_scheme'][rhyme_type] = {'verses' : [n], 'rhyming_words' : [], 'rhyming_part' : []}
 
-        # if rhyme is set in 'soft mode' (to be implemented)
-        else:
-          self.active_tools['rhyme'].update({'type' : 'soft', 'rhyme_scheme' : {}})
+      # if rhyme is set in 'soft mode' (to be implemented)
+      else:
+        self.active_tools['rhyme'].update({'type' : 'soft', 'rhyme_scheme' : {}})
 
-      if rule[0] == 'num_syl':
+      return True
 
-        # discard max number of tokens
-        self.active_tools['verse_size'] = False
+    if rule[0] == 'num_syl':
 
-        # create syllable slot
-        self.active_tools['num_syl'].update({'active' : True, 'number' : rule[1]})
+      # discard max number of tokens
+      self.active_tools['verse_size'] = False
 
-      if rule[0] == 'no_repeat':
-        self.active_tools[rule[0]] = rule[1]
+      # create syllable slot
+      # WARNING: 'active' key should be unnecessary
+      self.active_tools['num_syl'].update({'active' : True, 'number' : rule[1]})
 
-      if rule[0] == 'scheme':
+      return True
 
-        # discard max number of tokens
-        self.active_tools['verse_size'] = False
+    if rule[0] == 'no_repeat':
 
-        # save number of verses
-        self.active_tools['num_verses'] = len(rule[1])
+      self.active_tools[rule[0]] = rule[1]
 
-        # create syllable slot
-        self.active_tools['num_syl'].update({'active' : True, 'scheme' : rule[1]})
+      return True
 
-      if rule[0] == 'num_verses':
-        self.active_tools['num_verses'] = rule[1]
+    # 'scheme' and 'num_syl' rules are introduced differently but point under the hood to the same process but
+    # with a different datatype. How pythonic is this?
+    if rule[0] == 'scheme':
+
+      # discard max number of tokens
+      self.active_tools['verse_size'] = False
+      # save number of verses
+      self.active_tools['num_verses'] = len(rule[1])
+      # create syllable slot
+      self.active_tools['num_syl'].update({'active' : True, 'scheme' : rule[1]})
+
+      return True
+
+    if rule[0] == 'num_verses':
+
+      self.active_tools['num_verses'] = rule[1]
+
+      return True
 
 
 
   def eliminate_rule(self, rule):
+
     if self.active_tools[rule] and rule != 'cos_sim':
       self.active_tools[rule]['active'] = False
     elif self.active_tools[rule] and rule == 'cos_sim':
