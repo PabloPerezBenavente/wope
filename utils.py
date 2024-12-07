@@ -11,12 +11,9 @@ def get_rhyme_and_syl_data(rhyme_to_numeric_tokens, numeric_tokens_to_syl):
     rhyming_part_with_syl = {rhyming_part: {}}
     for token in rhyme_to_numeric_tokens[rhyming_part]:
       try:
-        rhyming_part_with_syl[rhyming_part][numeric_tokens_to_syl[token]].append(token)
+        rhyming_part_with_syl[rhyming_part][numeric_tokens_to_syl[str(token)]].append(token)
       except KeyError:
-        try:
-          rhyming_part_with_syl[rhyming_part][numeric_tokens_to_syl[token]] = [token]
-        except KeyError:
-          pass
+        rhyming_part_with_syl[rhyming_part][numeric_tokens_to_syl[str(token)]] = [token]
     rhyme_and_syl_dict.update(rhyming_part_with_syl)
     words_that_rhyme = 0
     for sylable in rhyme_and_syl_dict[rhyming_part]:
@@ -389,7 +386,7 @@ def ban_scores(scores, banned_tokens):
     if not banned_mask_list:
       return scores
 
-    print(type(scores))
+    #print(type(scores))
 
     #print('BANNED_MASK_LIST: ', type(banned_mask_list))
     #print('first element: ', type(banned_mask_list[0]))
