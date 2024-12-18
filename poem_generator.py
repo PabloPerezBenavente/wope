@@ -1,10 +1,8 @@
-import pronouncing
 import torch
 from transformers import BeamSearchScorer, \
     LogitsProcessorList, StoppingCriteriaList, MaxLengthCriteria
 
 from toolprocessors import get_tool_tools
-from utils import get_syllables_in_verse
 
 def generator(prompt, active_tools, tokenizer, vocab, model):
 
