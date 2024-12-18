@@ -1,11 +1,6 @@
-import pronouncing
 from transformers import GPT2Tokenizer, GPT2LMHeadModel
-from logits_processor import SemLogits
 from utils import get_semantic_items
 from poem_generator import generator
-import json
-
-
 
 class PoemAgent():
   def __init__(self, num_verses = 4, no_repeat=1, verse_size = 20):
