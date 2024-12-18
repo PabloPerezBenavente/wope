@@ -117,7 +117,6 @@ class PoemAgent():
       print('cos sim value: ', self.active_tools['cos_sim'])
       print('verse size value: ', self.active_tools['verse_size'])
       print('num verses: ', self.active_tools['num_verses'])
-      #print('num syl: ', self.active_tools['num_syl'])
 
       poem = self.generator(self.input, self.active_tools, self.tokenizer, self.vocab, self.model)
 
