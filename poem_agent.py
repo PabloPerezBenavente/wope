@@ -42,33 +42,6 @@ class PoemAgent():
       self.word_tokens_not_in_cmu = f.read().split('\n')[:-1]
     self.active_tools.update({'word_tokens_not_in_cmu' : self.word_tokens_not_in_cmu, 'word_tokens_in_cmu' : self.word_tokens_in_cmu})
 
-    # create slot for rhyme
-    self.active_tools['rhyme'] = {'active' : False}
-
-    # dictionary of words sorted by rhyming part, dictionary of tokens that dont rhyme sorted by syllable
-    # and dictionary of tokens with polisyllable rhyme, also sorted by syllable
-    with open('data/rhyme/tokens_that_rhyme', 'r') as f:
-      self.rhyme_dict_to_numeric_tokens = json.loads(f.read())
-
-    # create slot for syllables
-    self.active_tools['num_syl'] = {'active' : False}
-
-    # dictionary of tokens with their syllable count, and dictionary of tokens sorted by syllable
-    with open('data/meter/tokens_to_number_of_syllables', 'r') as f:
-      tok_to_syl = json.loads(f.read())
-      self.numeric_tokens_to_syl = {int(token_id): tok_to_syl[token_id] for token_id in tok_to_syl.keys()}
-    with open('data/meter/number_of_syllables_to_tokens', 'r') as f:
-      syl_to_tok = json.loads(f.read()) # WARNING: this reads token ids as strings rather than ints, which might cause problems somewhere down the pipeline
-      self.syl_to_numeric_tokens = {int(num_of_syl): syl_to_tok[num_of_syl] for num_of_syl in syl_to_tok.keys()}
-    self.active_tools['num_syl'].update({'numeric_tokens_to_syl' : self.numeric_tokens_to_syl, 'syl_to_numeric_tokens' : self.syl_to_numeric_tokens})
-
-    # get combined data of rhymes and syllables
-    with open('data/rhyme/tokens_with_rhyme_and_syllable_count', 'r') as f:
-      self.rhyme_and_syl_dict = json.loads(f.read())
-    with open('data/rhyme/no_rhyme_and_syl_data', 'r') as f:
-      self.no_rhyme_and_syl_dict = json.loads(f.read())
-    self.active_tools['rhyme'].update({'rhyme_and_syl_dict': self.rhyme_and_syl_dict, 'no_rhyme_syl_dict': self.no_rhyme_and_syl_dict})
-
   def check_workspace(self):
     output = {"message": self.active_tools}
     return output
