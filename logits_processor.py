@@ -13,7 +13,6 @@ class SemLogits(LogitsProcessor):
     """
 
     key = get_embedding(keyword).detach().numpy()
-    print('your keyword is', keyword)
 
     # get list of tokens whose similarity w.r.t keyword is above threshold
     tokens_to_boost = []
@@ -25,10 +24,8 @@ class SemLogits(LogitsProcessor):
         tokens_to_boost.append(vocab[token])
 
     # remove keyword from list of tokens to boost
-    for n, token in enumerate(tokens_to_boost):
-      #print(n, tokenizer.decode(token))
+    for token in tokens_to_boost:
       if keyword in tokenizer.decode(token).strip(' Ġ').lower():
-        print(f'removing {tokenizer.decode(token)} from list of boosted tokens')
         tokens_to_boost.remove(token)
 
     # get vector of shape [vocab_size] where all tokens are 0 except for tokens to boost
@@ -46,13 +43,6 @@ class SemLogits(LogitsProcessor):
 
     # change shape to [1, vocab_size] to match scores shape
     resized_dense_vocab = tf.expand_dims(dense_vocab, axis=0)
-
-    # add scores and boosted vocabulary
-    # for non-beam search
-    # boosted_scores = resized_dense_vocab + scores
-
-    # boosted_scores = boosted_scores.numpy()
-    # boosted_scores = torch.tensor(boosted_scores)
 
     # for beam search
     scores = scores.detach().numpy()
