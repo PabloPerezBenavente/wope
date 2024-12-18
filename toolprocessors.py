@@ -1,5 +1,5 @@
 from transformers import NoRepeatNGramLogitsProcessor, MinNewTokensLengthLogitsProcessor, ForcedEOSTokenLogitsProcessor
-from stopping_criteria_classes import EndCriteria, SylStoppingCriteria
+from stopping_criteria_classes import EndCriteria
 from constrained_generation import MasterLogits
 
 def get_tool_tools(dict_of_tools, tokenizer, vocab):
@@ -37,14 +37,10 @@ def get_tool_tools(dict_of_tools, tokenizer, vocab):
       #print('forced end: ', dict_of_tools['verse_size'] + dict_of_tools['input_length'] + 1)
 
   # apply semantic, syllabic and rhyming restrictins
-  if (dict_of_tools['num_syl'] and dict_of_tools['num_syl']['active']) or dict_of_tools['cos_sim'] or dict_of_tools['rhyme']['active']:
+  if dict_of_tools['cos_sim']:
     tool_tools['LogitsProcessors'].append(MasterLogits(dict_of_tools, vocab, tokenizer))
 
-  # set stopping criterias
-  if dict_of_tools['num_syl']['active']:
-    tool_tools['StoppingCriteria'].append(SylStoppingCriteria(dict_of_tools, tokenizer))
-  else:
-    tool_tools['StoppingCriteria'].append(EndCriteria(tokenizer.eos_token_id))
+  tool_tools['StoppingCriteria'].append(EndCriteria(tokenizer.eos_token_id))
 
 
   return tool_tools
