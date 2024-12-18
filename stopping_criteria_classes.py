@@ -62,7 +62,11 @@ class SylStoppingCriteria(StoppingCriteria):
             if syl_count >= self.syl_num:
               #print(f"stopping with generated: ", tokenizer.decode(beam_input_ids))
               stops[beam_index] = True
-          except KeyError:
+          except KeyError as e:
+            # generated <|endoftext|> token should not count for syllables
+            if e == 50256:
+              pass
+
             for n, key in enumerate(self.numeric_tokens_to_syl.keys()):
               if n == 0:
                 pass
