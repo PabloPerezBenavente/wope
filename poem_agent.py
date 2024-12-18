@@ -1,7 +1,7 @@
 import pronouncing
 from transformers import GPT2Tokenizer, GPT2LMHeadModel
 from logits_processor import SemLogits
-from utils import get_word_tokens_not_in_cmu, rhymes_to_numeric_tokens, get_syl_items, get_semantic_items, get_rhyme_and_syl_data
+from utils import get_semantic_items
 from poem_generator import generator
 import json
 
