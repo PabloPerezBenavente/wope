@@ -1,5 +1,5 @@
 from transformers import LogitsProcessor
-from utils import ban_scores_syl, ban_scores, boost_scores
+from utils import ban_scores, boost_scores
 
 class MasterLogits(LogitsProcessor):
   """
