@@ -6,40 +6,73 @@ from numpy.linalg import norm
 
 def get_embedding(word, vocab, model):
   """
-  Args: word (str)
-  returns: embedding
-  """
+    Encodes a word into its magical vector form, so it can enter the sacred world of embeddings.
+    Args:
+        word (str): The word to encode. Hopefully, it's in the vocabulary.
+        vocab (dict): Maps words to their corresponding token IDs. The dictionary of dreams.
+        model (object): The language model with pre-trained embeddings (aka the treasure chest).
+    Returns:
+        embedding (torch.Tensor): The numerical representation of the word, ready for deep learning shenanigans.
+    """
 
+  # Look up the word's ID in the vocabulary (no ID, no embedding — life's tough)
   id = vocab[word]
+
+  # Fetch the word's embedding from the model's embedding layer
   embedding = model.transformer.wte.weight[id]
 
   return embedding
 
 
 def get_similarity(key, query, vocab, model):
-
+  """
+    Calculates the cosmic closeness (cosine similarity) between two words or embeddings.
+    Args:
+        key (str or np.ndarray): The first word or its embedding. Can be a string or already a vector.
+        query (str or np.ndarray): The second word or its embedding. Same deal as `key`.
+        vocab (dict): Maps words to token IDs. Because words are useless without their IDs.
+        model (object): The language model that holds the magical pre-trained embeddings.
+    Returns:
+        cosine_similarity (float): A number between -1 and 1 indicating how much the two inputs like each other.
+    """
+  # If the key is a word (string), encode it into an embedding (because math doesn't speak English)
   if type(key) == str:
     key = get_embedding(key, vocab, model).detach().numpy()
+  # If the query is a word (string), encode it into an embedding as well (same reason as above)
   if type(query) == str:
     query = get_embedding(query, vocab, model).detach().numpy()
+
+  # Calculate cosine similarity: dot product of the vectors divided by their magnitudes
   cosine_similarity = np.dot(query, key)/(norm(query)*norm(key))
 
+  # Return their relationship status as a float
   return cosine_similarity
 
 
 def create_boosted_vocab(ids, value, vocab):
   """
-  Args: ids(list) a list with the ids of tokens to boost
-        value (int) the value to boost desired tokens
-  returns: boosted_vocab: a tensor with the shape of the vocabulary, where only boosted tokens have positive constant value
-  """
-
+    Crafts a sparse tensor where chosen tokens shine brighter than the rest.
+    Args:
+        ids (list): A list of token IDs deemed worthy of a boost (the chosen ones).
+        value (int): The constant value that will amplify the selected tokens' scores.
+        vocab (dict): The complete vocabulary, serving as the canvas for this sparse tensor.
+    Returns:
+        boosted_vocab (tf.sparse.SparseTensor): A sparse tensor where the chosen tokens carry the boost,
+        while the rest remain silent at zero.
+    """
+  # Reshape the IDs of the chosen tokens into a column vector (they’re ready for their spotlight)
   ids_to_boost = tf.cast(tf.reshape(tf.convert_to_tensor(ids), [len(ids), 1]), tf.int64)
+
+  # Create a tensor filled with the boost value (a chorus of amplification)
   values_tensor = tf.cast(tf.fill([len(ids)], int(value)), tf.float32)
+
+  # Define the shape of the sparse tensor to match the size of the vocabulary (the stage is set)
   shape = [len(vocab)]
 
+  # Build a sparse tensor where only the chosen tokens receive their amplified value (the stars of the show)
   boosted_vocab = tf.sparse.SparseTensor(ids_to_boost, values_tensor, shape)
 
+  # Return this sparse masterpiece, where the special tokens stand tall
   return boosted_vocab
 
 def get_semantic_items(word, vocab, model):
@@ -65,7 +98,6 @@ def get_semantic_items(word, vocab, model):
   # filter only the top nth closest
   ordered_words = sorted(similar_words, key = lambda x: x[1], reverse=True)
 
-  #print('similar words', ordered_words[:50])
   similar_tokens = [vocab[token[0]] for token in ordered_words[:50]]
 
   return similar_tokens
