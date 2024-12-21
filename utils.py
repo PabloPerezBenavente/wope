@@ -76,117 +76,137 @@ def create_boosted_vocab(ids, value, vocab):
   return boosted_vocab
 
 def get_semantic_items(word, vocab, model):
+    """
+    Finds tokens in the vocab that are BFFs (most semantically similar) with the given word.
+    Args:
+        word (str): The lucky word we’re finding semantic buddies for.
+        vocab (dict): The entire vocabulary.
+        model (object): The magical neural net that helps us calculate similarity.
+    Returns:
+        similar_tokens (list): A list of token IDs representing the top 50 most similar words.
+    """
 
-  """
-  args:
-  cos_sim: a word (str)
-  returns:
-  list of tokens that are close
-  """
+    similar_words = []
+    for n, token in enumerate(vocab):
+        query = token # Current token we’re evaluating as a possible semantic pal.
 
-  similar_words = []
-  for n, token in enumerate(vocab):
-    query = token
+        # Check if the token has a valid pronunciation (avoiding nonsense words)
+        if pronouncing.phones_for_word(token.strip(' Ġ').lower()):
+            # Make sure the token isn’t the same as or contains the input word (no narcissists or nested buddies)
+            if token.strip(' Ġ').lower() not in word and word not in token.strip(' Ġ').lower():
+              key = word # The input word becomes the "key" for comparison.
+              similarity = get_similarity(query, key, vocab, model)
+              similar_words.append((token, similarity)) # Add this token and its similarity score to the list.
 
-    # check that token is in cmu, to get meaningfull words?
-    if pronouncing.phones_for_word(token.strip(' Ġ').lower()):
-      if token.strip(' Ġ').lower() not in word and word not in token.strip(' Ġ').lower():
-          key = word
-          similarity = get_similarity(query, key, vocab, model)
-          similar_words.append((token, similarity))
+    # Sort tokens by their similarity scores in descending order (because only the elite matter).
+    ordered_words = sorted(similar_words, key = lambda x: x[1], reverse=True)
 
-  # filter only the top nth closest
-  ordered_words = sorted(similar_words, key = lambda x: x[1], reverse=True)
+    # Take the top 50 tokens and convert them into their token IDs (the VIP list).
+    similar_tokens = [vocab[token[0]] for token in ordered_words[:50]]
 
-  similar_tokens = [vocab[token[0]] for token in ordered_words[:50]]
-
-  return similar_tokens
+    return similar_tokens
 
 def ban_scores(scores, banned_tokens):
-
-
-    #print('type of banned tokens: ', type(banned_tokens))
-    #print('type of first element in banned tokens', type(banned_tokens[0]))
     """
     Args:
         scores: logits distribution of shape (batch size, vocabulary size)
         banned_tokens: list of list of tokens to ban of shape (batch_size, number_of_banned_tokens)
 
-    returns: scores: tensor where banned token positions are set to '-inf'
+    Returns:
+        scores: tensor where banned token positions are set to '-inf'
     """
 
-    # print('number of beams in tokens to ban: ', len(banned_tokens))
-    # print('size of scores', scores.size())
-
+    # A list to hold coordinates of all the words we're sending to exile
     banned_mask_list = []
+
     for idx, batch_banned_tokens in enumerate(banned_tokens):
       for token in batch_banned_tokens:
-        banned_mask_list.append([idx, token])
+          # Collecting (batch index, token index) pairs to banish them from the realm of scores
+          banned_mask_list.append([idx, token])
+
+    # If no tokens are banned, all is forgiven. Return original scores.
     if not banned_mask_list:
       return scores
 
+    # Convert the exile list into a tensor of banned coordinates
     banned_mask = torch.LongTensor(banned_mask_list)
 
+    # Create a tensor of ones (a symbolic representation of the act of banning)
     indices = torch.ones(len(banned_mask))
 
+    # Build a sparse tensor to represent banned positions and make it dense and boolean
     banned_mask = (
-      torch.sparse.LongTensor(banned_mask.t(), indices, scores.size()).to(scores.device).to_dense().bool()
+      torch.sparse.LongTensor(banned_mask.t(), indices, scores.size())
+      .to(scores.device)
+      .to_dense()
+      .bool() # True means: thou shalt not pass
     )
 
+    # Mask out the banned tokens by setting their scores to '-inf' (eternal banishment)
     scores = scores.masked_fill(banned_mask, -float("inf"))
 
     return scores
 
 def boost_scores(scores, cos_sim_dict, tokens_to_boost, vocab):
-  """
-  Args: scores
-        cos_sim_dict {'abcds':{'intensity':x, 'period':y, 'vocab':[]}}
-        tokens_to_boost [[[beam1keyword1][beam1keyword2]][[beam2keyword1][beam2keyword2]]]
-  returns: boosted_scores: a tensor with the modified scores
-  """
+    """
+      Args:
+          scores: The logits distribution to tweak (shape: [batch size, vocab size])
+          cos_sim_dict: {'keyword': {'intensity': x, 'period': y, 'vocab': []}}
+          tokens_to_boost: [[[beam1keyword1][beam1keyword2]], [[beam2keyword1][beam2keyword2]]]
+          vocab: The holy dictionary of tokens.
 
-  boosted_scores = []
+      Returns:
+          boosted_scores: A tensor with the modified scores.
+    """
 
-  if cos_sim_dict:
-    keyword_list = []
-    for keyword in cos_sim_dict.keys():
-      keyword_list.append(keyword)
+    boosted_scores = []
 
-    for beam in tokens_to_boost:
-        new_beam = []
-        for n, topic_tokens in enumerate(beam):
+    # Only boost if we’ve got a cos_sim_dict. Otherwise, no favoritism today.
+    if cos_sim_dict:
+        keyword_list = list(cos_sim_dict.keys()) # Extract all the keywords we care about boosting.
 
-          # create a tensor with value in the place of their correspondent vocab tokens.
-          topic = keyword_list[n]
-          ids_to_boost = tf.cast(tf.reshape(tf.convert_to_tensor(topic_tokens), [len(topic_tokens), 1]), tf.int64)
-          values_tensor = tf.cast(tf.fill([len(topic_tokens)], cos_sim_dict[topic]['intensity']), tf.float32)
-          shape = [len(vocab)]
-          boosted_score = tf.sparse.SparseTensor(ids_to_boost, values_tensor, shape)
-          boosted_score = tf.sparse.reorder(boosted_score)
+        for beam in tokens_to_boost: # Each beam gets its own boost treatment.
+            new_beam = []
+            for n, topic_tokens in enumerate(beam):
+                # Step 1: Identify which tokens to give the "VIP treatment."
+                topic = keyword_list[n] # Corresponding keyword for this set of tokens.
+                ids_to_boost = tf.cast(
+                    tf.reshape(tf.convert_to_tensor(topic_tokens), [len(topic_tokens), 1]), tf.int64
+                                       ) # Get the IDs of tokens to boost.
+                values_tensor = tf.cast(
+                    tf.fill([len(topic_tokens)], cos_sim_dict[topic]['intensity']), tf.float32
+                ) # Assign the intensity of favoritism.
+                shape = [len(vocab)] # Match the shape of the vocabulary.
 
-          # transform to dense
-          dense_vocab = tf.sparse.to_dense(boosted_score)
+                # Create a sparse tensor where only the boosted tokens have non-zero values.
+                boosted_score = tf.sparse.SparseTensor(ids_to_boost, values_tensor, shape)
+                boosted_score = tf.sparse.reorder(boosted_score) # Organize the sparse tensor nicely.
 
-          # reshape to [1, vocabsize] to match each score's beam shape
-          resized_dense_vocab = tf.expand_dims(dense_vocab, axis = 0)
+                # Step 2: Transform the sparse tensor to a dense format, so it plays nice with other arrays.
+                dense_vocab = tf.sparse.to_dense(boosted_score)
 
-          # transform to numpy
-          beam_keyword_boost = resized_dense_vocab.numpy()
+                # Step 3: Reshape it to [1, vocab_size] so it can merge with scores.
+                resized_dense_vocab = tf.expand_dims(dense_vocab, axis = 0)
 
-          # add the boosts to the beam
-          if type(new_beam) == list:
-            new_beam = beam_keyword_boost
-          else:
-            new_beam += beam_keyword_boost
+                # Step 4: Convert to a NumPy array for further tweaks.
+                beam_keyword_boost = resized_dense_vocab.numpy()
 
-        boosted_scores.append(new_beam)
+                # Add the boosts for this topic to the beam. First topic? Start fresh. Otherwise, stack 'em up.
+                if type(new_beam) == list:
+                    new_beam = beam_keyword_boost
+                else:
+                    new_beam += beam_keyword_boost
 
-    boosted_scores = np.array(boosted_scores)
-    boosted_scores = np.squeeze(boosted_scores, axis = (1,))
+            boosted_scores.append(new_beam) # Add the fully boosted beam to our collection
 
-  # operate as arrays and transform back again to tensor
-  numpy_scores = scores.detach().numpy()
-  new_scores = numpy_scores + boosted_scores
-  boosted_scores = torch.tensor(new_scores)
+        # Squeeze out unnecessary dimensions to make it compatible with scores.
+        boosted_scores = np.array(boosted_scores)
+        boosted_scores = np.squeeze(boosted_scores, axis = (1,))
 
-  return boosted_scores
+        # Step 5: Add the boosted scores to the original scores.
+        # These scores just went from "meh" to "VIP lounge access."
+        numpy_scores = scores.detach().numpy()  # Convert PyTorch tensor to NumPy array.
+        new_scores = numpy_scores + boosted_scores # Apply the boosts.
+        boosted_scores = torch.tensor(new_scores) # Transform back into a PyTorch tensor.
+
+        return boosted_scores
