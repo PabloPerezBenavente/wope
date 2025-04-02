@@ -4,538 +4,209 @@ import numpy as np
 import torch
 from numpy.linalg import norm
 
-def get_rhyme_and_syl_data(rhyme_to_numeric_tokens, numeric_tokens_to_syl):
-  rhyme_and_syl_dict = {}
-  no_rhyme_and_syl_dict = {}
-  for rhyming_part in rhyme_to_numeric_tokens.keys():
-    rhyming_part_with_syl = {rhyming_part: {}}
-    for token in rhyme_to_numeric_tokens[rhyming_part]:
-      try:
-        rhyming_part_with_syl[rhyming_part][numeric_tokens_to_syl[token]].append(token)
-      except KeyError:
-        try:
-          rhyming_part_with_syl[rhyming_part][numeric_tokens_to_syl[token]] = [token]
-        except KeyError:
-          pass
-    rhyme_and_syl_dict.update(rhyming_part_with_syl)
-    words_that_rhyme = 0
-    for sylable in rhyme_and_syl_dict[rhyming_part]:
-      for word in rhyme_and_syl_dict[rhyming_part][sylable]:
-        words_that_rhyme += 1
-      if words_that_rhyme == 1:
-        try:
-          no_rhyme_and_syl_dict[sylable].extend(rhyme_and_syl_dict[rhyming_part][sylable])
-        except KeyError:
-          no_rhyme_and_syl_dict[sylable] = [rhyme_and_syl_dict[rhyming_part][sylable]]
-
-  return rhyme_and_syl_dict, no_rhyme_and_syl_dict
-
 def get_embedding(word, vocab, model):
   """
-  Args: word (str)
-  returns: embedding
-  """
+    Encodes a word into its magical vector form, so it can enter the sacred world of embeddings.
+    Args:
+        word (str): The word to encode. Hopefully, it's in the vocabulary.
+        vocab (dict): Maps words to their corresponding token IDs. The dictionary of dreams.
+        model (object): The language model with pre-trained embeddings (aka the treasure chest).
+    Returns:
+        embedding (torch.Tensor): The numerical representation of the word, ready for deep learning shenanigans.
+    """
 
+  # Look up the word's ID in the vocabulary (no ID, no embedding — life's tough)
   id = vocab[word]
+
+  # Fetch the word's embedding from the model's embedding layer
   embedding = model.transformer.wte.weight[id]
 
   return embedding
 
 
 def get_similarity(key, query, vocab, model):
-
+  """
+    Calculates the cosmic closeness (cosine similarity) between two words or embeddings.
+    Args:
+        key (str or np.ndarray): The first word or its embedding. Can be a string or already a vector.
+        query (str or np.ndarray): The second word or its embedding. Same deal as `key`.
+        vocab (dict): Maps words to token IDs. Because words are useless without their IDs.
+        model (object): The language model that holds the magical pre-trained embeddings.
+    Returns:
+        cosine_similarity (float): A number between -1 and 1 indicating how much the two inputs like each other.
+    """
+  # If the key is a word (string), encode it into an embedding (because math doesn't speak English)
   if type(key) == str:
     key = get_embedding(key, vocab, model).detach().numpy()
+  # If the query is a word (string), encode it into an embedding as well (same reason as above)
   if type(query) == str:
     query = get_embedding(query, vocab, model).detach().numpy()
+
+  # Calculate cosine similarity: dot product of the vectors divided by their magnitudes
   cosine_similarity = np.dot(query, key)/(norm(query)*norm(key))
 
+  # Return their relationship status as a float
   return cosine_similarity
 
 
 def create_boosted_vocab(ids, value, vocab):
   """
-  Args: ids(list) a list with the ids of tokens to boost
-        value (int) the value to boost desired tokens
-  returns: boosted_vocab: a tensor with the shape of the vocabulary, where only boosted tokens have positive constant value
-  """
-
+    Crafts a sparse tensor where chosen tokens shine brighter than the rest.
+    Args:
+        ids (list): A list of token IDs deemed worthy of a boost (the chosen ones).
+        value (int): The constant value that will amplify the selected tokens' scores.
+        vocab (dict): The complete vocabulary, serving as the canvas for this sparse tensor.
+    Returns:
+        boosted_vocab (tf.sparse.SparseTensor): A sparse tensor where the chosen tokens carry the boost,
+        while the rest remain silent at zero.
+    """
+  # Reshape the IDs of the chosen tokens into a column vector (they’re ready for their spotlight)
   ids_to_boost = tf.cast(tf.reshape(tf.convert_to_tensor(ids), [len(ids), 1]), tf.int64)
+
+  # Create a tensor filled with the boost value (a chorus of amplification)
   values_tensor = tf.cast(tf.fill([len(ids)], int(value)), tf.float32)
+
+  # Define the shape of the sparse tensor to match the size of the vocabulary (the stage is set)
   shape = [len(vocab)]
 
+  # Build a sparse tensor where only the chosen tokens receive their amplified value (the stars of the show)
   boosted_vocab = tf.sparse.SparseTensor(ids_to_boost, values_tensor, shape)
 
+  # Return this sparse masterpiece, where the special tokens stand tall
   return boosted_vocab
 
-
-def get_word_tokens_not_in_cmu(vocab):
-
-  word_tokens_in_cmu = []
-  word_tokens_not_in_cmu = []
-
-
-  for word in vocab.keys():
-    in_cmu = False
-    if pronouncing.phones_for_word(word.strip(' Ġ')):
-      for character in word:
-        if character != 'I' and character != 'Ġ' and character.isupper():
-          in_cmu = False
-          break
-        else:
-          in_cmu = True
-    if in_cmu:
-      word_tokens_in_cmu.append(word)
-    else:
-      word_tokens_not_in_cmu.append(word)
-
-
-
-  return word_tokens_not_in_cmu, word_tokens_in_cmu
-
-
-def rhymes_to_numeric_tokens(vocab_in_cmu, vocab):
-
-  """
-  args: list with the gpt2 tokens that are in cmu dict when .strip('Ġ')
-  returns: dict with rhyming strings as keys and lists of the words with that rhyming part as values
-  """
-
-  rhyme_dict = {}
-  tokens_that_dont_rhyme = {}
-  tokens_with_polisylabic_rhyme = {}
-
-  for token in vocab_in_cmu:
-    flag = False
-    if token == 'money':
-      pass
-      #print('analysing money')
-      #flag = True
-    if token == 'Ġmoney':
-      pass
-      #print('analysing Ġmoney')
-      #flag = True
-
-    # create dictionary of non-rhyming tokens sorted by syllables:
-
-    # first add tokens with no rhymes
-    if pronouncing.rhymes(token.strip(' Ġ')) == []:
-      if flag == True:
-        pass
-        #print('token didnt have rhymes')
-
-      try:
-        tokens_that_dont_rhyme[pronouncing.syllable_count(pronouncing.phones_for_word(token.strip(' Ġ'))[0])].append(vocab[token])
-      except KeyError:
-        tokens_that_dont_rhyme[pronouncing.syllable_count(pronouncing.phones_for_word(token.strip(' Ġ'))[0])] = [vocab[token]]
-
-    # then add tokens whose rhymes are not in vocab
-    elif pronouncing.rhymes(token.strip(' Ġ')) != []:
-      rhymes_in_vocab = True
-
-      for rhyme in pronouncing.rhymes(token.strip(' Ġ')):
-        if rhyme not in vocab_in_cmu and 'Ġ' + rhyme not in vocab_in_cmu:
-          rhymes_in_vocab = False
-        else:
-          rhymes_in_vocab = True
-          break
-      if rhymes_in_vocab == False:
-        if flag == True:
-          pass
-          #print('rhymes of token were not in vocab, so token is treated as if it didnt rhyme')
-        #print(f"token {token} has rhymes but none of them are in vocab")
-        try:
-          tokens_that_dont_rhyme[pronouncing.syllable_count(pronouncing.phones_for_word(token.strip(' Ġ'))[0])].append(vocab[token])
-        except KeyError:
-          tokens_that_dont_rhyme[pronouncing.syllable_count(pronouncing.phones_for_word(token.strip(' Ġ'))[0])] = [vocab[token]]
-      else:
-        if flag == True:
-          pass
-          #print('rhymes were in vocab')
-
-        if len(pronouncing.stresses(pronouncing.phones_for_word(token.strip(' Ġ'))[0])) > 1 and pronouncing.stresses(pronouncing.phones_for_word(token.strip('Ġ'))[0])[-1] != 1:
-          if flag == True:
-            pass
-            #print('token rhyme is more than one syllable')
-          try:
-            tokens_with_polisylabic_rhyme[pronouncing.syllable_count(pronouncing.phones_for_word(token.strip(' Ġ'))[0])].append(vocab[token])
-          except KeyError:
-            tokens_with_polisylabic_rhyme[pronouncing.syllable_count(pronouncing.phones_for_word(token.strip(' Ġ'))[0])] = [vocab[token]]
-        else:
-          if flag == True:
-            pass
-            #print('token rhyme is only one syllable, so it is included')
-          try:
-            rhyme_dict[pronouncing.rhyming_part(pronouncing.phones_for_word(token.strip(' Ġ'))[0])].append(vocab[token])
-          except KeyError:
-            rhyme_dict[pronouncing.rhyming_part(pronouncing.phones_for_word(token.strip(' Ġ'))[0])] = [vocab[token]]
-
-    #elif len(pronouncing.stresses(pronouncing.phones_for_word(token.strip(' Ġ'))[0])) > 1 and pronouncing.stresses(pronouncing.phones_for_word(token.strip('Ġ'))[0])[-1] != 1:
-      #if token.strip('Ġ') == 'important':
-        #print(token)
-      #if flag == True:
-        #print('token rhyme is more than one syllable')
-      #try:
-        #tokens_with_polisylabic_rhyme[pronouncing.syllable_count(pronouncing.phones_for_word(token.strip(' Ġ'))[0])].append(vocab[token])
-      #except KeyError:
-        #tokens_with_polisylabic_rhyme[pronouncing.syllable_count(pronouncing.phones_for_word(token.strip(' Ġ'))[0])] = [vocab[token]]
-
-  return rhyme_dict, tokens_that_dont_rhyme, tokens_with_polisylabic_rhyme
-
-
-def get_syl_items(word_tokens_in_cmu, vocab):
-
-  numeric_tokens_to_syl = {}
-  syl_to_numeric_tokens = {}
-
-  for token in word_tokens_in_cmu:
-    clean_token = token.strip(' Ġ')
-    for i in range(6):
-      if pronouncing.syllable_count(pronouncing.phones_for_word(clean_token)[0]) == i+1:
-        numeric_tokens_to_syl[vocab[token]] = i+1
-        try:
-          syl_to_numeric_tokens[i+1].append(vocab[token])
-        except KeyError:
-          syl_to_numeric_tokens[i+1] = [vocab[token]]
-
-  return numeric_tokens_to_syl, syl_to_numeric_tokens
-
 def get_semantic_items(word, vocab, model):
+    """
+    Finds tokens in the vocab that are BFFs (most semantically similar) with the given word.
+    Args:
+        word (str): The lucky word we’re finding semantic buddies for.
+        vocab (dict): The entire vocabulary.
+        model (object): The magical neural net that helps us calculate similarity.
+    Returns:
+        similar_tokens (list): A list of token IDs representing the top 50 most similar words.
+    """
 
-  """
-  args:
-  cos_sim: a word (str)
-  returns:
-  list of tokens that are close
-  """
+    similar_words = []
+    for n, token in enumerate(vocab):
+        query = token # Current token we’re evaluating as a possible semantic pal.
 
-  similar_words = []
-  for n, token in enumerate(vocab):
-    query = token
+        # Check if the token has a valid pronunciation (avoiding nonsense words)
+        if pronouncing.phones_for_word(token.strip(' Ġ').lower()):
+            # Make sure the token isn’t the same as or contains the input word (no narcissists or nested buddies)
+            if token.strip(' Ġ').lower() not in word and word not in token.strip(' Ġ').lower():
+              key = word # The input word becomes the "key" for comparison.
+              similarity = get_similarity(query, key, vocab, model)
+              similar_words.append((token, similarity)) # Add this token and its similarity score to the list.
 
-    # check that token is in cmu, to get meaningfull words?
-    if pronouncing.phones_for_word(token.strip(' Ġ').lower()):
-      if token.strip(' Ġ').lower() not in word and word not in token.strip(' Ġ').lower():
-          key = word
-          similarity = get_similarity(query, key, vocab, model)
-          similar_words.append((token, similarity))
+    # Sort tokens by their similarity scores in descending order (because only the elite matter).
+    ordered_words = sorted(similar_words, key = lambda x: x[1], reverse=True)
 
-  # filter only the top nth closest
-  ordered_words = sorted(similar_words, key = lambda x: x[1], reverse=True)
+    # Take the top 50 tokens and convert them into their token IDs (the VIP list).
+    similar_tokens = [vocab[token[0]] for token in ordered_words[:50]]
 
-  #print('similar words', ordered_words[:50])
-  similar_tokens = [vocab[token[0]] for token in ordered_words[:50]]
-
-  return similar_tokens
-
-
-def ban_scores_syl(tokenizer, beam_input_ids, numeric_tokens_to_syl, syl_to_numeric_tokens, length_of_verse_in_syllables,
-                   rhyme=False, rhyme_type=False, current_verse=False):
-  banned_tokens_in_beam = []
-  boosted_tokens_in_beam = []
-  # print('STARTING SYLLABLE PROCESSING')
-
-  # set syllable counter to zero
-  syl_count = 0
-
-  for token in beam_input_ids.tolist():
-    if tokenizer.decode(token)[0] != "'" and tokenizer.decode(token) != "s":
-      try:
-        syl_count += numeric_tokens_to_syl[token]
-      except KeyError:
-        pass
-
-  # print(f"current sylables are {syl_count}")
-  for syl in syl_to_numeric_tokens:
-    # ban words that would go over the max number of syllables.
-    if syl_count + syl > length_of_verse_in_syllables:
-      # print(f'banning words with {syl} syllables')
-      banned_tokens_in_beam.extend([token for token in syl_to_numeric_tokens[syl]])
-
-    # if rhyme is hard
-    if rhyme_type == 'hard':
-
-      # if a word ends the verse
-      if syl_count + syl == length_of_verse_in_syllables:
-
-        # get rhyming part according to rhyme type of current verse
-        rhyme_type = rhyme['list_scheme'][current_verse]
-        current_rhyming_part = rhyme['rhyme_scheme'][rhyme_type]['rhyming_part']
-
-        # if this is the first verse of its type and it must rhyme, then
-        # ban words with no rhymes
-        if current_rhyming_part == [] and rhyme['list_scheme'].count(rhyme_type) != 1:
-          # print(f"elliminating tokens that dont rhyme and have {syl} syllables")
-          try:
-            try:
-              banned_tokens_in_beam.extend(rhyme['no_rhyme_syl_dict'][syl])
-            except KeyError:
-              pass
-          # except KeyError:
-          # pass
-          except TypeError:
-            try:
-              banned_tokens_in_beam.append(rhyme['no_rhyme_syl_dict'][syl])
-            except KeyError:
-              pass
-
-          # ban words that dont have rhymes with one syllable:
-          # print(f"elliminating tokens that dont rhyme with monosyllables and have {syl} syllables")
-          try:
-            banned_tokens_in_beam.extend(rhyme['polisylabic_rhyme'][syl])
-          except KeyError:
-            pass
-          except TypeError:
-            banned_tokens_in_beam.append(rhyme['polisylabic_rhyme'][syl])
-
-
-
-        # if it is not the first prediction for that rhyme type
-        else:
-          # print('current verse must rhyme with ', current_rhyming_part)
-
-          # ban tokens that will finish verse and dont rhyme:
-
-          # print(f"banning tokens that dont rhyme and are {syl} syllables long")
-
-          banned_tokens_in_beam.extend(rhyme['no_rhyme_stl_dict'][syl])
-
-          # ban tokens that will finish verse and dont rhyme with current rhyming part
-
-          for rhyming_part in rhyme['rhyme_and_syl_dict']:
-            if rhyming_part != current_rhyming_part:
-              # if rhyming_part == 'IH1 L M':
-              # print('analyzing film rhyming part')
-              try:
-
-                tokens_that_wouldnt_rhyme = rhyme['rhyme_and_syl_dict'][rhyming_part][syl]
-                banned_tokens_in_beam.extend(tokens_that_wouldnt_rhyme)
-
-                # print(f"tokens ending in {rhyming_part} are: ", tokens_that_wouldnt_rhyme)
-                # if rhyming_part == 'IH1 L M':
-                # print('banned tokens rhyming with film: ', tokens_that_wouldnt_rhyme)
-
-                # if 45885 in tokens_that_wouldnt_rhyme:
-                # print(f'Ġcrotch has been banned')
-                # if 1169 in tokens_that_wouldnt_rhyme:
-                # print(f'Ġthe has been banned')
-                # if 262 in tokens_that_wouldnt_rhyme:
-                # print(f'the has been banned')
-              except KeyError:
-                pass
-
-          # also ban words that have already been emitted, even if they have the same rhyming part:
-          try:
-
-            # print('banning words that were already rhymed')
-            rhyming_words = rhyme['rhyme_scheme'][rhyme_type]['rhyming_words']
-            # print('already emitted rhyiming words: ', rhyming_words)
-            # print(f"banning {rhyming_words}")
-            banned_tokens_in_beam.extend(rhyming_words)
-
-
-          except TypeError:
-            banned_tokens_in_beam.append(rhyme['rhyme_scheme'][rhyme_type]['rhyming_words'])
-
-          try:
-            boosted_tokens_in_beam.extend(
-              [token for token in rhyme['rhyme_and_syl_dict'][current_rhyming_part][syl] if token not in rhyming_words])
-
-          except KeyError:
-            pass
-            # print(f"no tokens can be boosted with {syl} syllables")
-
-          except TypeError:
-            for candidate_rhyming_word in rhyme['rhyme_and_syl_dict'][current_rhyming_part][syl]:
-              try:
-                if candidate_rhyming_word not in rhyming_words:
-                  boosted_tokens_in_beam.append(candidate_rhyming_word)
-              except TypeError:
-                if candidate_rhyming_word != rhyming_words:
-                  boosted_tokens_in_beam.append(candidate_rhyming_word)
-  # if in banned_tokens_in_beam:
-  # print('we banned 35505')
-
-  # print('length of banned tokens in this beam: ', len(banned_tokens_in_beam))
-  # print(f"this verse is {syl_count} syllables long")
-  # if 45885 in banned_tokens_in_beam:
-  # print(f'Ġcrotch has been banned when having {syl_count} syllables')
-  # if 1169 in banned_tokens_in_beam:
-  # print(f'Ġthe has been banned when having {syl_count} syllables')
-  # if 262 in banned_tokens_in_beam:
-  # print(f'the has been banned when having {syl_count} syllables')
-  return banned_tokens_in_beam, boosted_tokens_in_beam
+    return similar_tokens
 
 def ban_scores(scores, banned_tokens):
-
-
-    #print('type of banned tokens: ', type(banned_tokens))
-    #print('type of first element in banned tokens', type(banned_tokens[0]))
     """
     Args:
         scores: logits distribution of shape (batch size, vocabulary size)
         banned_tokens: list of list of tokens to ban of shape (batch_size, number_of_banned_tokens)
 
-    returns: scores: tensor where banned token positions are set to '-inf'
+    Returns:
+        scores: tensor where banned token positions are set to '-inf'
     """
 
-    # print('number of beams in tokens to ban: ', len(banned_tokens))
-    # print('size of scores', scores.size())
-
+    # A list to hold coordinates of all the words we're sending to exile
     banned_mask_list = []
+
     for idx, batch_banned_tokens in enumerate(banned_tokens):
       for token in batch_banned_tokens:
-        banned_mask_list.append([idx, token])
+          # Collecting (batch index, token index) pairs to banish them from the realm of scores
+          banned_mask_list.append([idx, token])
+
+    # If no tokens are banned, all is forgiven. Return original scores.
     if not banned_mask_list:
       return scores
 
-    print(type(scores))
+    # Convert the exile list into a tensor of banned coordinates
+    banned_mask = torch.LongTensor(banned_mask_list)
 
-    #print('BANNED_MASK_LIST: ', type(banned_mask_list))
-    #print('first element: ', type(banned_mask_list[0]))
-    #print('first element of first element: ', type(banned_mask_list[0][0]))
-    #print('first of first: ', banned_mask_list[0][0])
-    try:
-      banned_mask = torch.LongTensor(banned_mask_list)
-    except TypeError:
-      pass
-      #print(banned_mask_list)
+    # Create a tensor of ones (a symbolic representation of the act of banning)
     indices = torch.ones(len(banned_mask))
 
+    # Build a sparse tensor to represent banned positions and make it dense and boolean
     banned_mask = (
-      torch.sparse.LongTensor(banned_mask.t(), indices, scores.size()).to(scores.device).to_dense().bool()
+      torch.sparse.LongTensor(banned_mask.t(), indices, scores.size())
+      .to(scores.device)
+      .to_dense()
+      .bool() # True means: thou shalt not pass
     )
 
+    # Mask out the banned tokens by setting their scores to '-inf' (eternal banishment)
     scores = scores.masked_fill(banned_mask, -float("inf"))
 
     return scores
 
 def boost_scores(scores, cos_sim_dict, tokens_to_boost, vocab):
-  """
-  Args: scores
-        cos_sim_dict {'abcds':{'intensity':x, 'frequency':y, 'vocab':[]}}
-        tokens_to_boost [[[beam1keyword1][beam1keyword2]][[beam2keyword1][beam2keyword2]]]
-  returns: boosted_scores: a tensor with the modified scores
-  """
+    """
+      Args:
+          scores: The logits distribution to tweak (shape: [batch size, vocab size])
+          cos_sim_dict: {'keyword': {'intensity': x, 'period': y, 'vocab': []}}
+          tokens_to_boost: [[[beam1keyword1][beam1keyword2]], [[beam2keyword1][beam2keyword2]]]
+          vocab: The holy dictionary of tokens.
 
-  boosted_scores = []
+      Returns:
+          boosted_scores: A tensor with the modified scores.
+    """
 
-  if cos_sim_dict:
-    keyword_list = []
-    for keyword in cos_sim_dict.keys():
-      keyword_list.append(keyword)
+    boosted_scores = []
 
-    for beam in tokens_to_boost:
+    # Only boost if we’ve got a cos_sim_dict. Otherwise, no favoritism today.
+    if cos_sim_dict:
+        keyword_list = list(cos_sim_dict.keys()) # Extract all the keywords we care about boosting.
 
+        for beam in tokens_to_boost: # Each beam gets its own boost treatment.
+            new_beam = []
+            for n, topic_tokens in enumerate(beam):
+                # Step 1: Identify which tokens to give the "VIP treatment."
+                topic = keyword_list[n] # Corresponding keyword for this set of tokens.
+                ids_to_boost = tf.cast(
+                    tf.reshape(tf.convert_to_tensor(topic_tokens), [len(topic_tokens), 1]), tf.int64
+                                       ) # Get the IDs of tokens to boost.
+                values_tensor = tf.cast(
+                    tf.fill([len(topic_tokens)], cos_sim_dict[topic]['intensity']), tf.float32
+                ) # Assign the intensity of favoritism.
+                shape = [len(vocab)] # Match the shape of the vocabulary.
 
-        new_beam = []
+                # Create a sparse tensor where only the boosted tokens have non-zero values.
+                boosted_score = tf.sparse.SparseTensor(ids_to_boost, values_tensor, shape)
+                boosted_score = tf.sparse.reorder(boosted_score) # Organize the sparse tensor nicely.
 
-        #print('length of boosted beam tokens', len(beam))
+                # Step 2: Transform the sparse tensor to a dense format, so it plays nice with other arrays.
+                dense_vocab = tf.sparse.to_dense(boosted_score)
 
-        for n, topic_tokens in enumerate(beam):
+                # Step 3: Reshape it to [1, vocab_size] so it can merge with scores.
+                resized_dense_vocab = tf.expand_dims(dense_vocab, axis = 0)
 
-          # create a tensor with value in the place of their correspondent vocab tokens.
-          topic = keyword_list[n]
-          ids_to_boost = tf.cast(tf.reshape(tf.convert_to_tensor(topic_tokens), [len(topic_tokens), 1]), tf.int64)
-          values_tensor = tf.cast(tf.fill([len(topic_tokens)], cos_sim_dict[topic]['intensity']), tf.float32)
-          shape = [len(vocab)]
-          boosted_score = tf.sparse.SparseTensor(ids_to_boost, values_tensor, shape)
+                # Step 4: Convert to a NumPy array for further tweaks.
+                beam_keyword_boost = resized_dense_vocab.numpy()
 
-          #print(f"boosting {keyword_list[n]} with an intensity of {cos_sim_dict[topic]['intensity']}")
+                # Add the boosts for this topic to the beam. First topic? Start fresh. Otherwise, stack 'em up.
+                if type(new_beam) == list:
+                    new_beam = beam_keyword_boost
+                else:
+                    new_beam += beam_keyword_boost
 
-          # i dont know what this does
-          boosted_score = tf.sparse.reorder(boosted_score)
+            boosted_scores.append(new_beam) # Add the fully boosted beam to our collection
 
-          # transform to dense
-          dense_vocab = tf.sparse.to_dense(boosted_score)
+        # Squeeze out unnecessary dimensions to make it compatible with scores.
+        boosted_scores = np.array(boosted_scores)
+        boosted_scores = np.squeeze(boosted_scores, axis = (1,))
 
-          # reshape to [1, vocabsize] to match each score's beam shape
-          resized_dense_vocab = tf.expand_dims(dense_vocab, axis = 0)
+        # Step 5: Add the boosted scores to the original scores.
+        # These scores just went from "meh" to "VIP lounge access."
+        numpy_scores = scores.detach().numpy()  # Convert PyTorch tensor to NumPy array.
+        new_scores = numpy_scores + boosted_scores # Apply the boosts.
+        boosted_scores = torch.tensor(new_scores) # Transform back into a PyTorch tensor.
 
-          # transform to numpy
-          beam_keyword_boost = resized_dense_vocab.numpy()
-
-          # add the boosts to the beam
-          if type(new_beam) == list:
-            new_beam = beam_keyword_boost
-          else:
-            new_beam += beam_keyword_boost
-
-        boosted_scores.append(new_beam)
-
-    boosted_scores = np.array(boosted_scores)
-
-    boosted_scores = np.squeeze(boosted_scores, axis = (1,))
-
-
-  else:
-
-    #boosted_scores = []
-
-    #print('boosting scores without cos_sim_dict')
-
-    #print('number of beams in tokens to boost with no cos sim: ', len(tokens_to_boost))
-    for beam in tokens_to_boost:
-
-
-        new_beam = []
-
-        #for n, topic_tokens in enumerate(beam):
-
-        # create a tensor with value in the place of their correspondent vocab tokens.
-        #topic = keyword_list[n]
-        ids_to_boost = tf.cast(tf.reshape(tf.convert_to_tensor(beam), [len(beam), 1]), tf.int64)
-        values_tensor = tf.cast(tf.fill([len(beam)], 6), tf.float32)
-        shape = [len(vocab)]
-        boosted_score = tf.sparse.SparseTensor(ids_to_boost, values_tensor, shape)
-
-        #print(f"boosting {keyword_list[n]} with an intensity of {cos_sim_dict[topic]['intensity']}")
-
-        # i dont know what this does
-        boosted_score = tf.sparse.reorder(boosted_score)
-
-        # transform to dense
-        dense_vocab = tf.sparse.to_dense(boosted_score)
-
-        # reshape to [1, vocabsize] to match each score's beam shape
-        resized_dense_vocab = tf.expand_dims(dense_vocab, axis = 0)
-
-        # transform to numpy
-        beam_boost = resized_dense_vocab.numpy()
-
-        # add the boosts to the beam
-        if type(new_beam) == list:
-          new_beam = beam_boost
-        else:
-          new_beam += beam_boost
-
-
-        # add beam with boosted values to the scores
-        boosted_scores.append(new_beam)
-
-    # transform list of arrays into array
-    boosted_scores = np.array(boosted_scores)
-
-    #if not cos_sim_dict:
-    # reduce dimension corresponding to original list to match scores shape
-    boosted_scores = np.squeeze(boosted_scores, axis=(1,))
-
-  # operate as arrays and transform back again to tensor
-  numpy_scores = scores.detach().numpy()
-  new_scores = numpy_scores + boosted_scores
-  boosted_scores = torch.tensor(new_scores)
-
-
-
-
-  return boosted_scores
-
-def get_syllables_in_verse(verse):
-  syl = 0
-  for word in verse.split(' '):
-    try:
-      syl += pronouncing.syllable_count(pronouncing.phones_for_word(word)[0])
-    except IndexError:
-      print('the error ocurred with: ', word)
-
-  return syl
+        return boosted_scores

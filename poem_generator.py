@@ -1,267 +1,132 @@
-import pronouncing
-import torch
+from transformers import LogitsProcessorList, StoppingCriteriaList, MaxLengthCriteria
+from transformers import NoRepeatNGramLogitsProcessor, MinNewTokensLengthLogitsProcessor, ForcedEOSTokenLogitsProcessor
+from masterlogits import MasterLogits
+from endcriteria import EndCriteria
 
-from transformers import BeamSearchScorer, \
-    LogitsProcessorList, StoppingCriteriaList, MaxLengthCriteria
 
-from toolprocessors import get_tool_tools
-from utils import get_syllables_in_verse
+def get_tool_tools(dict_of_tools, tokenizer, vocab):
+    """
+    Loads all the generation tools (logit processors and stopping criteria) into one neat package.
+    Think of it as the toolbox that holds everything you need to manipulate, restrict, and stop generation.
+    """
+    tool_tools = {}
+
+    # Number of verses we want (because poems need limits, unlike your imagination)
+    tool_tools['num_verses'] = dict_of_tools['num_verses']
+
+    # Create a slot for all the LogitsProcessors (fancy tools for controlling the model's word choices)
+    tool_tools['LogitsProcessors'] = []
+
+    # Create a slot for StoppingCriteria (the emergency brake for generation)
+    tool_tools['StoppingCriteria'] = []
+
+    # Set repetition restrictions (because no one likes repetitive poetry)
+    if dict_of_tools['no_repeat']:
+        # Prevent n-grams from repeating themselves like a broken record
+        tool_tools['LogitsProcessors'] = [NoRepeatNGramLogitsProcessor(dict_of_tools['no_repeat'])]
+
+    # Enforce fixed verse size using min/max token length (poetry with rules is still poetry)
+    if dict_of_tools['verse_size']:
+        # Special case for the first verse (get ready to start strong!)
+        if dict_of_tools['current_verse'] == 0:
+            tool_tools['LogitsProcessors'].append(
+                MinNewTokensLengthLogitsProcessor(dict_of_tools['input_length'],
+                                                  dict_of_tools['verse_size'] + 1, # Add 1 for the <|endoftext|> token
+                                                  tokenizer.eos_token_id))
+            tool_tools['LogitsProcessors'].append(
+                ForcedEOSTokenLogitsProcessor(dict_of_tools['verse_size'] + 1,
+                                              tokenizer.eos_token_id))
+        # For subsequent verses (because consistency matters... sometimes)
+        else:
+            tool_tools['LogitsProcessors'].append(
+                MinNewTokensLengthLogitsProcessor(dict_of_tools['input_length'],
+                                                  dict_of_tools['verse_size'] + dict_of_tools['input_length'] + 1,
+                                                  tokenizer.eos_token_id))
+            tool_tools['LogitsProcessors'].append(
+                ForcedEOSTokenLogitsProcessor(dict_of_tools['verse_size'] + dict_of_tools['input_length'] + 1,
+                                              tokenizer.eos_token_id))
+    else:
+        # If no verse size is specified and it's not the first verse, set a minimum token length
+        if dict_of_tools['current_verse'] != 0:
+            tool_tools['LogitsProcessors'].append(
+                MinNewTokensLengthLogitsProcessor(dict_of_tools['input_length'],
+                                                  2, # Minimum 2 tokens (because a verse with 1 word isn't impressive)
+                                                  tokenizer.eos_token_id))
+
+    # Apply semantic restrictions (aka the "poetry police")
+    if dict_of_tools['cos_sim']:
+        tool_tools['LogitsProcessors'].append(
+            MasterLogits(dict_of_tools, vocab, tokenizer)) # The brains behind semantic similarity magic
+
+    # Set stopping criteria (stop when <|endoftext|> shows up — because all things good come to an end)
+    tool_tools['StoppingCriteria'].append(
+        EndCriteria(tokenizer.eos_token_id))
+
+    return tool_tools # Return the fully loaded toolbox, ready for action
+
 
 def generator(prompt, active_tools, tokenizer, vocab, model):
 
-    poem = {}
-
-
-    # how many beams to track during the Viterbi algorithm
+    # Number of beams to track during the beam search algorithm (more beams = wider search space)
     num_beams = 10
-    # how many beams to return after the algorithm
+    # Number of beams to return after the search
     num_return_beams = 5
 
-    # get length of verses
-    fixed_length = active_tools['verse_size']
-    prompt_length = active_tools['input_length']
+    input = prompt # Start the poem with the initial prompt
+    poem = {} # This dictionary will hold our poetic masterpiece
 
-    input = prompt
-
-    print('the number of verses will be: ', active_tools['num_verses'])
-
-    for num_verse in range(active_tools['num_verses']):
-
-        print('generating verse', num_verse)
-
-        # save current verse
+    for num_verse in range(active_tools['num_verses']):  # Generate multiple verses as specified
+        # Keep track of which verse we're working on (important for tools that need context)
         active_tools['current_verse'] = num_verse
 
-        # the prompt to continue
-        #input = prompt
-        verse_prompt = input
+        # Convert the input prompt into token IDs the model can understand
+        prompt_tokenized = tokenizer(input, return_tensors='pt' )['input_ids']
 
-        print(f'this will be the prompt of verse {num_verse}: ', verse_prompt)
-
-        # tokenizing the prompt
-        prompt_tokenized = tokenizer(verse_prompt, return_tensors='pt' )
-        prompt_tokenized = prompt_tokenized['input_ids']
-
-        # get instances for LogitsProcessors
+        # Get custom settings for logits processing and stopping criteria (for controlling generation rules)
         tool_tools = get_tool_tools(active_tools, tokenizer, vocab)
-
-        # instantiating a BeamSearchScorer
-        beam_scorer = BeamSearchScorer(
-            batch_size = prompt_tokenized.shape[0],
-            num_beams = num_beams,
-            num_beam_hyps_to_keep = num_return_beams,
-            device=model.device
-        )
-
-        # creating a list of LogitsProcessor instances
         logits_processor = LogitsProcessorList(tool_tools['LogitsProcessors'])
-
-        # creating a list of StoppingCriteria instances
         stopping_criteria = StoppingCriteriaList(tool_tools['StoppingCriteria'])
 
-        # running beam search using our custom LogitsProcessor
-        generated = model.beam_search(
-            torch.cat([prompt_tokenized] * num_beams),
-            beam_scorer,
+        max_length = active_tools['input_length'] + active_tools['verse_size']
+        generated = model.generate(
+            prompt_tokenized,
+            max_length=max_length,
+            num_beams=num_beams,
             logits_processor=logits_processor,
-            pad_token_id=0,
-            stopping_criteria=stopping_criteria
+            stopping_criteria=stopping_criteria,
+            pad_token_id=0
         )
 
-        # save predictions
+        # Save the raw predictions (all beams)
         predictions = generated
 
-        print(f'these are the raw predictions: {predictions}')
+        # Clean up predictions by truncating tokens at <|endoftext|> (50256 is the magic token ID for that)
+        try:
+            clean_predictions = [beam.tolist()[0:beam.tolist().index(50256)] for beam in predictions]
+        except ValueError:
+            clean_predictions = [beam.tolist() for beam in predictions]
 
-        clean_predictions = [beam.tolist()[0:beam.tolist().index(50256)] for beam in predictions]
+        # Grab the best beam (the one with the highest score)
+        verse_tokens = clean_predictions[0]
 
-        print(f'these are the predictions after cleaning: {clean_predictions}')
+        # Remove <|endoftext|> for smooth continuation into the next verse
+        try:
+            input = tokenizer.decode(verse_tokens[0:verse_tokens.index(50256)])
+        except ValueError as e: # If <|endoftext|> isn't found, decode all tokens
+            input = tokenizer.decode(verse_tokens)
 
-        # decode predictions
-        decoded_predictions = [tokenizer.decode(beam) for beam in clean_predictions]
-
-        #decoded_predictions = [tokenizer.decode(beam.tolist()[0:beam.tolist().index(50256)]) for beam in predictions]
-
-        print('these are the decoded predictions: ', decoded_predictions)
-
-        # BEAM POSTPROCESSING
-
-        filtered_predictions = []
-
-        # if syllabic length is active, get beams with appropriate number
-        if active_tools['num_syl']['active']:
-
-            # get appropriate number
-            if num_verse == 0:
-                try:
-                    max_size = active_tools['num_syl']['scheme']['num_verse']
-                except KeyError:
-                    max_size = active_tools['num_syl']['number']
-            else:
-                try:
-                    max_size = active_tools['num_syl']['input_syl'] + active_tools['num_syl']['scheme'][num_verse]
-                except KeyError:
-                    max_size = active_tools['num_syl']['number']*(num_verse+1)
-
-            # select only beams with the appropriate number of syllables
-            filtered_predictions = []
-            for verse in predictions:
-                decoded_verse = tokenizer.decode(verse.tolist()[0:verse.tolist().index(50256)])
-                number_of_syllables = get_syllables_in_verse(decoded_verse)
-                if number_of_syllables == max_size:
-                    filtered_predictions.append(verse)
-
-
-
-        # if rhyme is active
-        if active_tools['rhyme']['active'] and active_tools['rhyme']['type'] == 'hard':
-            rhyming_type = [active_tools['rhyme']['list_scheme'][num_verse]][0]
-            if active_tools['rhyme']['rhyme_scheme'][rhyming_type]['rhyming_words'] != []:
-                forcing_rhyme = True
-                rhyming_part = active_tools['rhyme']['rhyme_scheme'][rhyming_type]['rhyming_part']
-
-                beams_that_rhyme = []
-                if active_tools['num_syl']['active']:
-                    beams = filtered_predictions
-                else:
-                    beams = decoded_predictions
-
-                try:
-                    for n, beam in enumerate(beams):
-                        end_index = beam.tolist().index(50256)
-
-                        last_token = beam[end_index - 1]
-                        last_token_rhyme = pronouncing.rhyming_part(pronouncing.phones_for_word(tokenizer.decode(last_token).strip(' Ġ'))[0])
-                        if last_token_rhyme == rhyming_part:
-
-                            beams_that_rhyme.append(beam)
-                except TypeError:
-                    failed_poem = 'this didnt work'
-                    return failed_poem
-            else:
-                forcing_rhyme = False
-        else:
-            forcing_rhyme = False
-
-        if forcing_rhyme:
-            beams = beams_that_rhyme
-            try:
-                if (active_tools['num_syl'] and not active_tools['rhyme']) or (active_tools['num_syl'] and active_tools['rhyme']['rhyme_scheme'][rhyming_type]['rhyming_words'] == []):
-                    beams = filtered_predictions
-            except KeyError:
-                pass
-
-        if not forcing_rhyme and not active_tools['num_syl']['active']:
-            good_beam = clean_predictions[0]
-
-        elif not forcing_rhyme and active_tools['num_syl']['active']:
-            good_beam = filtered_predictions[0]
-
-        else:
-
-            try:
-                good_beam = beams[0]
-            except IndexError:
-                print('no poem could be generated')
-                failed_poem = 'this didnt work'
-
-            return failed_poem
-
-        # eliminate <|endoftext|>
-        output = good_beam
-        #print('this is the output: ', output)
-
-
-        verse_tokens = good_beam
-
-        # construct verse
-        #full_verse = ''
-        #for n, token in enumerate(verse_tokens):
-            #clean_token = tokenizer.decode(token)
-            #try:
-                #if clean_token not in ['er', 'ory', 'ing', 's', 'na', 'res', 'es', 'ate', 'ed'] and clean_token[0] != " " and clean_token[0] not in ",!);':." and tokenizer.decode(verse_tokens[n-1]) != "(":
-                    #full_verse += " "
-            #except IndexError:
-                #pass
-            #full_verse += clean_token
-        full_verse = tokenizer.decode(verse_tokens)
-
-        # if rhyme is active and this is the first verse, prepare all tokens that dont rhyme
-        if active_tools['rhyme']['active']:
-
-            # if rhyme is hard, we save the rhyming part of the last word in its slot
-            if active_tools['rhyme']['rype'] == 'hard':
-
-                # get last word
-                last_token = tokenizer.decode(verse_tokens[-1])
-                last_word = last_token.strip(' Ġ')
-
-                # get rhyming part
-                try:
-                    rhyming_part = pronouncing.rhyming_part(pronouncing.phones_for_word(last_word)[0])
-                except IndexError:
-                    pass
-
-                # if rhyme is hard, we save info of previous word according to scheme
-                if active_tools['rhyme']['type'] == 'hard':
-
-                    # get rhyme type of current verse (AABB):
-                    rhyme_type = active_tools['rhyme']['list_scheme'][num_verse]
-
-                    # save rhyming part and word in their slots
-                    active_tools['rhyme']['rhyming_scheme'][rhyme_type].update({'rhyming_part' : rhyming_part})
-                    active_tools['rhyme']['rhyming_scheme'][rhyme_type]['rhyming_words'].append(verse_tokens[-1])
-
-                    if last_token[0] == ' ':
-
-                        try:
-                            active_tools['rhyme']['rhyme_scheme'][rhyme_type]['rhyming_words'].append(vocab[last_word])
-                        except KeyError:
-                            pass
-
-                    else:
-                        try:
-                            active_tools['rhyme']['rhyme_scheme'][rhyme_type]['rhyming_words'].append(vocab['Ġ' + last_word])
-                        except KeyError:
-                            pass
-
-                else:
-                    pass
-
-        input = full_verse
-        print('this is set as the input: ', input)
-
-        # set length of input for next verse
+        # Update the length of the current input to track how far we've generated
         active_tools['input_length'] = len(verse_tokens)
 
-        # set length of input in syllables for next verse
-        if active_tools['num_syl']['active']:
-            try:
-                if num_verse == 0:
-                    try:
-                        active_tools['num_syl']['input_syl'] = active_tools['num_syl']['scheme'][num_verse]
-                    except KeyError:
-                        active_tools['num_syl']['inpu_syl'] = active_tools['num_syl']['number']
-                else:
-                    try:
-                        active_tools['num_syl']['input_syl'] = active_tools['num_syl']['scheme'][num_verse] + active_tools['num_syl']['input_syl']
-                    except KeyError:
-                        active_tools['num_syl']['input_syl'] = active_tools['num_syl']['number']*(num_verse+1)
-            except IndexError:
-                pass
-
-        if num_verse == 0:
+        # Decode the tokens into human-readable poetry (exclude the prompt for subsequent verses)
+        if num_verse == 0: # For the first verse, decode the entire thing
             verse = tokenizer.decode(verse_tokens)
-        else:
+        else: # For later verses, exclude the initial prompt tokens
             verse = tokenizer.decode(verse_tokens[len(prompt_tokenized[0]):])
 
+        # Save the decoded verse and its tokenized version into the poem dictionary
         poem[f'VERSE {num_verse}'] = verse
         poem[f'VERSE {num_verse} tokens'] = verse_tokens
-        #if num_verse != 0:
-            #poem[f'VERSE {num_verse} tokens'] = output.tolist()[len(prompt_tokenized[0]):]
-        #else:
-            #poem[f'VERSE {num_verse} tokens'] = output.tolist()
 
-        print(verse)
-
+    # Return the final poetic creation, complete with tokens for each verse (for debugging or further processing)
     return poem
