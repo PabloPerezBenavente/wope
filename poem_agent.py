@@ -118,9 +118,13 @@ class PoemAgent():
       print('verse size value: ', self.active_tools['verse_size'])
       print('num verses: ', self.active_tools['num_verses'])
 
+
       poem = self.generator(self.input, self.active_tools, self.tokenizer, self.vocab, self.model)
+      poem = ' '.join([poem[verse] for verse in poem.keys() if 'tokens' not in verse])
 
       print(poem)
 
       self.tool_tools = {}
+
+      return poem
 

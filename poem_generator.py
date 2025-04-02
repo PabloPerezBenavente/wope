@@ -1,8 +1,69 @@
-import torch
-from transformers import BeamSearchScorer, \
-    LogitsProcessorList, StoppingCriteriaList, MaxLengthCriteria
+from transformers import LogitsProcessorList, StoppingCriteriaList, MaxLengthCriteria
+from transformers import NoRepeatNGramLogitsProcessor, MinNewTokensLengthLogitsProcessor, ForcedEOSTokenLogitsProcessor
+from masterlogits import MasterLogits
+from endcriteria import EndCriteria
 
-from toolprocessors import get_tool_tools
+
+def get_tool_tools(dict_of_tools, tokenizer, vocab):
+    """
+    Loads all the generation tools (logit processors and stopping criteria) into one neat package.
+    Think of it as the toolbox that holds everything you need to manipulate, restrict, and stop generation.
+    """
+    tool_tools = {}
+
+    # Number of verses we want (because poems need limits, unlike your imagination)
+    tool_tools['num_verses'] = dict_of_tools['num_verses']
+
+    # Create a slot for all the LogitsProcessors (fancy tools for controlling the model's word choices)
+    tool_tools['LogitsProcessors'] = []
+
+    # Create a slot for StoppingCriteria (the emergency brake for generation)
+    tool_tools['StoppingCriteria'] = []
+
+    # Set repetition restrictions (because no one likes repetitive poetry)
+    if dict_of_tools['no_repeat']:
+        # Prevent n-grams from repeating themselves like a broken record
+        tool_tools['LogitsProcessors'] = [NoRepeatNGramLogitsProcessor(dict_of_tools['no_repeat'])]
+
+    # Enforce fixed verse size using min/max token length (poetry with rules is still poetry)
+    if dict_of_tools['verse_size']:
+        # Special case for the first verse (get ready to start strong!)
+        if dict_of_tools['current_verse'] == 0:
+            tool_tools['LogitsProcessors'].append(
+                MinNewTokensLengthLogitsProcessor(dict_of_tools['input_length'],
+                                                  dict_of_tools['verse_size'] + 1, # Add 1 for the <|endoftext|> token
+                                                  tokenizer.eos_token_id))
+            tool_tools['LogitsProcessors'].append(
+                ForcedEOSTokenLogitsProcessor(dict_of_tools['verse_size'] + 1,
+                                              tokenizer.eos_token_id))
+        # For subsequent verses (because consistency matters... sometimes)
+        else:
+            tool_tools['LogitsProcessors'].append(
+                MinNewTokensLengthLogitsProcessor(dict_of_tools['input_length'],
+                                                  dict_of_tools['verse_size'] + dict_of_tools['input_length'] + 1,
+                                                  tokenizer.eos_token_id))
+            tool_tools['LogitsProcessors'].append(
+                ForcedEOSTokenLogitsProcessor(dict_of_tools['verse_size'] + dict_of_tools['input_length'] + 1,
+                                              tokenizer.eos_token_id))
+    else:
+        # If no verse size is specified and it's not the first verse, set a minimum token length
+        if dict_of_tools['current_verse'] != 0:
+            tool_tools['LogitsProcessors'].append(
+                MinNewTokensLengthLogitsProcessor(dict_of_tools['input_length'],
+                                                  2, # Minimum 2 tokens (because a verse with 1 word isn't impressive)
+                                                  tokenizer.eos_token_id))
+
+    # Apply semantic restrictions (aka the "poetry police")
+    if dict_of_tools['cos_sim']:
+        tool_tools['LogitsProcessors'].append(
+            MasterLogits(dict_of_tools, vocab, tokenizer)) # The brains behind semantic similarity magic
+
+    # Set stopping criteria (stop when <|endoftext|> shows up — because all things good come to an end)
+    tool_tools['StoppingCriteria'].append(
+        EndCriteria(tokenizer.eos_token_id))
+
+    return tool_tools # Return the fully loaded toolbox, ready for action
+
 
 def generator(prompt, active_tools, tokenizer, vocab, model):
 
@@ -26,28 +87,24 @@ def generator(prompt, active_tools, tokenizer, vocab, model):
         logits_processor = LogitsProcessorList(tool_tools['LogitsProcessors'])
         stopping_criteria = StoppingCriteriaList(tool_tools['StoppingCriteria'])
 
-        # Set up a beam search scorer to manage beam search, i.e., finding the best poetic lines
-        beam_scorer = BeamSearchScorer(
-            batch_size = prompt_tokenized.shape[0], # How many input examples we're scoring (just one here)
-            num_beams = num_beams, # Number of beams we're scoring per input
-            num_beam_hyps_to_keep = num_return_beams, # Keep the top n hypotheses
-            device=model.device # Run everything on the same device as the model
-        )
-
-        # Perform beam search to generate poetic output with controlled creativity
-        generated = model.beam_search(
-            torch.cat([prompt_tokenized] * num_beams), # Duplicate input for each beam
-            beam_scorer, # Use the scorer defined above
-            logits_processor=logits_processor, # Apply custom constraints during generation
-            pad_token_id=0, # Pad token to avoid crashes with short outputs
-            stopping_criteria=stopping_criteria # Stop when conditions are met (e.g., verse ends)
+        max_length = active_tools['input_length'] + active_tools['verse_size']
+        generated = model.generate(
+            prompt_tokenized,
+            max_length=max_length,
+            num_beams=num_beams,
+            logits_processor=logits_processor,
+            stopping_criteria=stopping_criteria,
+            pad_token_id=0
         )
 
         # Save the raw predictions (all beams)
         predictions = generated
 
         # Clean up predictions by truncating tokens at <|endoftext|> (50256 is the magic token ID for that)
-        clean_predictions = [beam.tolist()[0:beam.tolist().index(50256)] for beam in predictions]
+        try:
+            clean_predictions = [beam.tolist()[0:beam.tolist().index(50256)] for beam in predictions]
+        except ValueError:
+            clean_predictions = [beam.tolist() for beam in predictions]
 
         # Grab the best beam (the one with the highest score)
         verse_tokens = clean_predictions[0]
