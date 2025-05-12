@@ -31,9 +31,9 @@ class PoemAgent():
     print('default configuration: \n number of lines = 4 \n no other restrictions')
 
     # load valid vocabulary
-    with open('data/vocab/GPT2_tokens_in_cmu', 'r') as f:
+    with open('wope/data/vocab/GPT2_tokens_in_cmu', 'r') as f:
       self.word_tokens_in_cmu = f.read().split('\n')[:-1]
-    with open('data/vocab/GPT2_tokens_not_in_cmu', 'r') as f:
+    with open('wope/data/vocab/GPT2_tokens_not_in_cmu', 'r') as f:
       self.word_tokens_not_in_cmu = f.read().split('\n')[:-1]
     self.active_tools.update({'word_tokens_not_in_cmu' : self.word_tokens_not_in_cmu, 'word_tokens_in_cmu' : self.word_tokens_in_cmu})
 
