@@ -37,10 +37,10 @@ def get_similarity(key, query, vocab, model):
     """
   # If the key is a word (string), encode it into an embedding (because math doesn't speak English)
   if type(key) == str:
-    key = get_embedding(key, vocab, model).detach().numpy()
+    key = get_embedding(key, vocab, model).detach().cpu().numpy()
   # If the query is a word (string), encode it into an embedding as well (same reason as above)
   if type(query) == str:
-    query = get_embedding(query, vocab, model).detach().numpy()
+    query = get_embedding(query, vocab, model).detach().cpu().numpy()
 
   # Calculate cosine similarity: dot product of the vectors divided by their magnitudes
   cosine_similarity = np.dot(query, key)/(norm(query)*norm(key))
