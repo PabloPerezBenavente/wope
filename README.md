@@ -1,134 +1,119 @@
-# WOPE 🎭 - Word-Oriented Poetry Engine
+# WOPE - AI Poetry Generator
 
-A computational poetry generation system that creates unique poems by blending semantic concepts through controlled text generation using GPT-2.
+**WOPE** (Word OPErator) is an AI-powered tool that creates unique poems by blending semantic concepts together. It uses advanced language models to generate creative verse with customizable themes and patterns.
 
-## Overview
+## What Does It Do?
 
-WOPE generates poetic text by combining two different semantic domains or concepts, creating unexpected and creative combinations that can serve as inspiration for poetry. The system uses wave-based semantic modulation to periodically influence word selection, resulting in text that oscillates between different conceptual realms.
+WOPE generates poetry by:
+- Taking two "semantic words" (themes or concepts) you choose
+- Weaving these concepts throughout the poem in wave-like patterns
+- Creating multiple verses with controlled rhythm and structure
 
-## Features
+For example, you might choose "ocean" and "memory" - WOPE will generate a poem that rhythmically alternates between these concepts, creating interesting thematic interplay.
 
-- **Dual Semantic Control**: Blend two different words or concepts with adjustable prominence
-- **Wave-Based Modulation**: Semantic influences that ebb and flow throughout the generated text
-- **Structured Generation**: Configurable verse length and count
-- **Interactive Web Interface**: User-friendly Streamlit application
-- **Repetition Prevention**: Automatic n-gram filtering to avoid repetitive patterns
+## Quick Start
 
-## Installation
+### Option 1: Run with Docker (Easiest)
 
-### Prerequisites
+If you have Docker installed:
 
-- Python 3.8+
-- pip package manager
-
-### Setup
-
-1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/wope.git
-cd wope
+docker compose up --build
 ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+Then open your browser to: **http://localhost:8501**
 
-3. Install additional required packages:
-```bash
-pip install torch transformers tensorflow numpy
-```
+### Option 2: Run Locally
 
-## Usage
+1. **Install Python dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### Web Interface
+2. **Run the web interface:**
+   ```bash
+   streamlit run streamlit_app.py
+   ```
 
-Run the Streamlit application:
-```bash
-streamlit run streamlit_app.py
-```
+3. **Open your browser to:** **http://localhost:8501**
 
-Then open your browser and navigate to `http://localhost:8501`
+## How to Use the Web Interface
 
-### Using the Web Interface
+1. **Enter two semantic words** - Choose any concepts you want in your poem (e.g., "love", "storm", "digital", "nature")
 
-1. **Enter two words**: These will be the semantic anchors for your poem
-2. **Adjust prominence sliders**: Control how strongly each word influences the generation (1-10)
-3. **Provide a beginning**: Start your poem with a phrase or sentence
-4. **Generate**: Click the button to create your poem
+2. **Adjust the sliders:**
+   - **Intensity (1-10)**: How strongly each word influences the poem
+   - **Period**: How often the semantic waves repeat (smaller = more frequent)
 
-### Programmatic Usage
+3. **Optional: Add a beginning text** - Start your poem with a custom phrase
 
-```python
-from Wope import Copoet
+4. **Click "Generate Poem"** - Wait a moment while the AI creates your unique poem
 
-# Initialize the poetry agent
-poet = Copoet(num_verses=4, no_repeat=1)
+5. **Read and enjoy!** - Each generation is unique, so feel free to generate multiple times
 
-# Set the input text
-poet.create_input("Once upon a")
+## Understanding the Parameters
 
-# Add semantic rules
-poet.introduce_rule(('cos_sim', 'dream', 7, 5))  # word, intensity, period
-poet.introduce_rule(('cos_sim', 'machine', 10, 3))
+- **Semantic Word**: The central concept or theme you want woven into the poem
+- **Intensity**: Think of this as the "volume" of that theme (higher = more prominent)
+- **Period**: Controls the rhythmic pattern - like waves in the ocean, smaller periods create faster oscillations between themes
+- **Number of Verses**: How many stanzas in your poem (default: 4)
+- **Tokens per Verse**: Roughly the length of each verse (default: 20 words)
 
-# Generate poem
-poem = poet.generate_text()
-print(poem)
-```
+## Examples
 
-## How It Works
+**Conservative approach:**
+- Word 1: "ocean", Intensity: 3, Period: 5
+- Word 2: "time", Intensity: 3, Period: 7
 
-WOPE uses a modified GPT-2 language model with custom logits processors to guide text generation:
+**Bold experimentation:**
+- Word 1: "chaos", Intensity: 8, Period: 2
+- Word 2: "silence", Intensity: 9, Period: 3
 
-1. **Semantic Embedding**: Words are converted to high-dimensional vectors using GPT-2's embeddings
-2. **Cosine Similarity**: The system finds tokens semantically similar to your chosen words
-3. **Wave Modulation**: Semantic influences are applied in waves, creating rhythmic conceptual shifts
-4. **Controlled Generation**: Custom stopping criteria and processors ensure structured output
+## Technical Details
 
-## Configuration Options
+### Architecture
 
-- **num_verses**: Number of verses to generate (default: 4)
-- **verse_size**: Number of tokens per verse (default: 20)
-- **no_repeat**: N-gram size for repetition prevention (default: 1)
-- **intensity**: Strength of semantic influence (1-10)
-- **period**: Wavelength of semantic modulation
+WOPE implements a novel approach to controlled text generation through semantic wave modulation:
 
-## Project Structure
+**Core Technologies:**
+- **GPT-2 Language Model**: Foundation for text generation
+- **PyTorch**: Tensor operations and neural network components
+- **Semantic Embeddings**: Word2Vec-style similarity using GPT-2's embedding layer
+- **Custom Logits Processors**: Real-time manipulation of token probabilities
+- **CMU Pronouncing Dictionary**: Vocabulary filtering for pronounceable output
 
-```
-wope/
-├── streamlit_app.py      # Web interface
-├── Wope.py              # Main Copoet class
-├── poem_agent.py        # Core poetry generation agent
-├── poem_generator.py    # Generation pipeline and tools
-├── masterlogits.py      # Custom logits processor
-├── endcriteria.py       # Stopping criteria
-├── utils.py             # Embedding and similarity utilities
-└── data/
-    └── vocab/           # GPT-2 vocabulary files
-```
+**Key Features:**
+- **Lazy Model Loading**: Streamlit caching for fast session management
+- **Beam Search Generation**: 10 beams for diverse, high-quality outputs
+- **Wave Modulation**: Periodic boosting of semantically similar tokens
+- **Stateful Generation**: Sequential verse generation with context preservation
+- **Error Handling**: Comprehensive logging and graceful degradation
 
-## Research
+**Performance:**
+- No TensorFlow dependency (pure PyTorch/NumPy)
+- Optimized Docker builds with model pre-caching
+- Efficient sparse tensor operations
+- Configurable through centralized constants
 
-This project implements concepts from computational creativity research. For more details about the theoretical background and methodology, see the [research paper](https://computationalcreativity.net/iccc24/wp-content/uploads/2023/12/PerezBenavente_ECS_ICCC24.pdf).
+## Research Background
 
-## Limitations
+WOPE implements computational creativity concepts from academic research. For the theoretical background, see the [ICCC 2024 paper](https://computationalcreativity.net/iccc24/wp-content/uploads/2023/12/PerezBenavente_ECS_ICCC24.pdf).
 
-- Complex or rare words may not be available in the vocabulary
-- Generation quality depends on the semantic relationship between chosen words
-- The system requires both PyTorch and TensorFlow due to mixed dependencies
+## Troubleshooting
+
+**Problem**: Docker container won't start
+- **Solution**: Make sure Docker is running and you have sufficient disk space
+
+**Problem**: "Out of memory" errors
+- **Solution**: Close other applications or reduce the number of verses
+
+**Problem**: Poems don't reflect my semantic words
+- **Solution**: Try increasing the intensity values or decreasing the period
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
+Feel free to open issues or submit pull requests on GitHub!
 
 ## License
 
-This project is open source. Please check the repository for license details.
-
-## Acknowledgments
-
-- Built with [Hugging Face Transformers](https://huggingface.co/transformers/)
-- Uses GPT-2 model by OpenAI
-- CMU Pronouncing Dictionary for vocabulary filtering
+See LICENSE file for details.

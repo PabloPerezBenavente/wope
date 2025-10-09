@@ -1,9 +1,11 @@
+import os
 from transformers import GPT2Tokenizer, GPT2LMHeadModel
 from utils import get_semantic_items
 from poem_generator import generator
+from constants import DEFAULT_NUM_VERSES, DEFAULT_VERSE_SIZE, DEFAULT_NO_REPEAT_NGRAM, DEFAULT_INTENSITY, DEFAULT_PERIOD
 
 class PoemAgent():
-  def __init__(self, num_verses = 4, no_repeat=1, verse_size = 20):
+  def __init__(self, num_verses=DEFAULT_NUM_VERSES, no_repeat=DEFAULT_NO_REPEAT_NGRAM, verse_size=DEFAULT_VERSE_SIZE):
 
     # util functions
     self.generator = generator
@@ -28,12 +30,14 @@ class PoemAgent():
     self.active_tools['no_repeat'] = no_repeat
     self.active_tools['verse_size'] = verse_size
 
-    print('default configuration: \n number of lines = 4 \n no other restrictions')
-
     # load valid vocabulary
-    with open('wope/data/vocab/GPT2_tokens_in_cmu', 'r') as f:
+    # Get the directory where this file is located
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    vocab_dir = os.path.join(current_dir, 'data', 'vocab')
+
+    with open(os.path.join(vocab_dir, 'GPT2_tokens_in_cmu'), 'r') as f:
       self.word_tokens_in_cmu = f.read().split('\n')[:-1]
-    with open('wope/data/vocab/GPT2_tokens_not_in_cmu', 'r') as f:
+    with open(os.path.join(vocab_dir, 'GPT2_tokens_not_in_cmu'), 'r') as f:
       self.word_tokens_not_in_cmu = f.read().split('\n')[:-1]
     self.active_tools.update({'word_tokens_not_in_cmu' : self.word_tokens_not_in_cmu, 'word_tokens_in_cmu' : self.word_tokens_in_cmu})
 
@@ -66,7 +70,7 @@ class PoemAgent():
             if len(rule) == 4:
               self.active_tools['cos_sim'][token].update({'intensity': int(rule[2]), 'period': int(rule[3])})
             if len(rule) == 2:
-              self.active_tools['cos_sim'][token].update({'intensity': int(6), 'period': int(3)})
+              self.active_tools['cos_sim'][token].update({'intensity': DEFAULT_INTENSITY, 'period': DEFAULT_PERIOD})
 
           return True
 
@@ -107,24 +111,29 @@ class PoemAgent():
   def generate_text(self):
 
     if not self.input:
-      print('you forgot to introduce the input')
       return False
 
-    else:
+    poem = self.generator(self.input, self.active_tools, self.tokenizer, self.vocab, self.model)
+    poem = ' '.join([poem[verse] for verse in poem.keys() if 'tokens' not in verse])
 
-      print('your input is: ', self.input)
-      print('generating with: ', list(self.active_tools.keys()))
-      print('cos sim value: ', self.active_tools['cos_sim'])
-      print('verse size value: ', self.active_tools['verse_size'])
-      print('num verses: ', self.active_tools['num_verses'])
+    self.tool_tools = {}
 
+    return poem
 
-      poem = self.generator(self.input, self.active_tools, self.tokenizer, self.vocab, self.model)
-      poem = ' '.join([poem[verse] for verse in poem.keys() if 'tokens' not in verse])
+  def generate_text_stream(self):
+    """
+    Generates poem verse by verse, yielding each verse as it's created.
 
-      print(poem)
+    Yields:
+        tuple: (verse_num, verse_text) for each generated verse
+    """
+    if not self.input:
+      return
 
-      self.tool_tools = {}
+    for verse_num, verse_text, verse_tokens in self.generator(
+        self.input, self.active_tools, self.tokenizer, self.vocab, self.model, stream=True
+    ):
+      yield (verse_num, verse_text)
 
-      return poem
+    self.tool_tools = {}
 
