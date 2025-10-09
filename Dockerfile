@@ -12,7 +12,9 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Use CPU-only PyTorch to significantly reduce image size (from ~4GB to ~800MB)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Pre-download GPT-2 model to speed up startup
 RUN python -c "from transformers import GPT2Tokenizer, GPT2LMHeadModel; \
