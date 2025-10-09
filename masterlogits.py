@@ -3,76 +3,83 @@ from utils import ban_scores, boost_scores
 
 class MasterLogits(LogitsProcessor):
     """
-     Master of all logits manipulations: boosts or bans tokens based on semantic similarity, timestep,
-     and user-defined intensity. Think of it as the puppet master of word probabilities.
-     """
+    Custom logits processor implementing semantic similarity wave modulation.
+
+    Boosts or bans tokens based on semantic similarity to keywords at periodic
+    intervals, creating wave-like patterns in the generated text.
+    """
 
     def __init__(self, LogitsProcessor_dict, vocab, tokenizer):
         """
-        Initialize the MasterLogits processor with rules for boosting/banning tokens.
-        LogitsProcessor_dict: contains all the information about how to manipulate scores.
+        Initializes the processor with semantic similarity configuration.
+
+        Args:
+            LogitsProcessor_dict (dict): Configuration containing cos_sim rules and verse tracking.
+            vocab (dict): Complete vocabulary dictionary.
+            tokenizer: Tokenizer for text encoding/decoding.
         """
+        self.vocab = vocab
+        self.tokenizer = tokenizer
 
-        self.vocab = vocab  # The full dictionary of words we’re working with
-        self.tokenizer = tokenizer # Tokenizer to convert between words and tokens
-
-        # Check if we're using cosine similarity for boosting
+        # Configure semantic similarity wave modulation
         if LogitsProcessor_dict['cos_sim']:
-            self.similarity = True # Activate the semantic wizardry
-            self.cos_sim_dict = LogitsProcessor_dict['cos_sim'] # Dictionary with keyword boosting rules
-            self.keywords = self.cos_sim_dict.keys() # Keywords for boosting
-            self.first_prediction = 0 # Track where the first boost happens
-            self.current_verse = LogitsProcessor_dict['current_verse']  # Verse tracking (poetry-related context)
+            self.similarity = True
+            self.cos_sim_dict = LogitsProcessor_dict['cos_sim']
+            self.keywords = self.cos_sim_dict.keys()
+            self.first_prediction = 0  # Track position of first token prediction
+            self.current_verse = LogitsProcessor_dict['current_verse']
         else:
-            self.similarity = False # No similarity boosting; keep it boring
-            self.cos_sim_dict = False # No rules to apply
+            self.similarity = False
+            self.cos_sim_dict = False
 
     def __call__(self, input_ids, scores):
         """
-        Modify logits (scores) by boosting or banning tokens based on semantic similarity.
-        Arguments:
-            input_ids: Tokenized inputs for the current generation step.
-            scores: The logits (scores) output by the model for all tokens.
+        Applies semantic similarity wave modulation to logit scores.
+
+        Tokens are boosted at periodic intervals based on semantic similarity to keywords,
+        and banned at other timesteps to create wave-like patterns.
+
+        Args:
+            input_ids (torch.Tensor): Tokenized inputs for current generation step.
+            scores (torch.Tensor): Logit scores output by the model.
+
         Returns:
-            Modified scores with boosted/banned tokens.
+            torch.Tensor: Modified scores with boosted/banned tokens.
         """
+        tokens_to_ban = []
+        tokens_to_boost = []
 
-        tokens_to_ban = [] # Tokens that will be banned (blocked from generation)
-        tokens_to_boost = [] # Tokens that will get a little extra "love" (boosted scores)
+        for beam_index, beam_input_ids in enumerate(input_ids):
+            tokens_to_ban_in_one_beam = []
+            semantic_tokens_to_boost_in_one_beam = []
 
-        for beam_index, beam_input_ids in enumerate(input_ids): # Loop over each beam of generation
-
-            tokens_to_ban_in_one_beam = [] # Banned tokens for this beam
-            semantic_tokens_to_boost_in_one_beam = [] # Boosted tokens for this beam
-
-            if self.similarity: # If we're using semantic similarity rules
-
-                # First prediction (special case: initialize boosting)
+            if self.similarity:
+                # First prediction: initialize boosting for all keywords
                 if self.current_verse == 0 and self.first_prediction == 0:
                     for keyword in self.keywords:
-                        # Boost tokens related to the keyword
                         semantic_tokens_to_boost_in_one_beam.append(self.cos_sim_dict[keyword]['vocab'])
-                        # Store where the first boost occurred
                         self.first_prediction = len(beam_input_ids)
 
+                # Subsequent predictions: apply periodic boosting/banning
                 else:
                     for keyword in self.keywords:
-                        # Boost tokens at specific timesteps based on keyword frequency
-                        if (len(beam_input_ids.tolist()) - self.first_prediction) % self.cos_sim_dict[keyword]['period'] == 0:
+                        # Calculate position relative to first prediction
+                        timestep = len(beam_input_ids.tolist()) - self.first_prediction
+
+                        # Boost tokens at periodic intervals
+                        if timestep % self.cos_sim_dict[keyword]['period'] == 0:
                             semantic_tokens_to_boost_in_one_beam.append(self.cos_sim_dict[keyword]['vocab'])
-                        # Ban tokens otherwise to keep the output under control
+                        # Ban tokens at other timesteps
                         else:
                             semantic_tokens_to_boost_in_one_beam.append([])
                             tokens_to_ban_in_one_beam.extend(self.cos_sim_dict[keyword]['vocab'])
 
-            # Collect all the tokens to ban/boost for this beam
+            # Collect tokens to ban/boost for this beam
             tokens_to_ban.append(tokens_to_ban_in_one_beam)
             tokens_to_boost.append(semantic_tokens_to_boost_in_one_beam)
 
-        # Apply token bans to the scores (zero out banned tokens)
+        # Apply banning and boosting operations
         scores = ban_scores(scores, tokens_to_ban)
-
-        # Apply token boosts to the scores (give some tokens a popularity bump or a VIP pass)
         scores = boost_scores(scores, self.cos_sim_dict, tokens_to_boost, self.vocab)
 
         return scores

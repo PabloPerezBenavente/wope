@@ -2,41 +2,46 @@ from transformers import LogitsProcessorList, StoppingCriteriaList, MaxLengthCri
 from transformers import NoRepeatNGramLogitsProcessor, MinNewTokensLengthLogitsProcessor, ForcedEOSTokenLogitsProcessor
 from masterlogits import MasterLogits
 from endcriteria import EndCriteria
+from constants import NUM_BEAMS, NUM_RETURN_BEAMS, EOS_TOKEN_ID, PAD_TOKEN_ID
 
 
 def get_tool_tools(dict_of_tools, tokenizer, vocab):
     """
-    Loads all the generation tools (logit processors and stopping criteria) into one neat package.
-    Think of it as the toolbox that holds everything you need to manipulate, restrict, and stop generation.
+    Constructs logits processors and stopping criteria based on generation configuration.
+
+    Args:
+        dict_of_tools (dict): Configuration dictionary containing generation parameters.
+        tokenizer: Tokenizer with EOS token information.
+        vocab (dict): Complete vocabulary dictionary.
+
+    Returns:
+        dict: Dictionary containing configured LogitsProcessors and StoppingCriteria lists.
     """
     tool_tools = {}
 
-    # Number of verses we want (because poems need limits, unlike your imagination)
+    # Store number of verses to generate
     tool_tools['num_verses'] = dict_of_tools['num_verses']
 
-    # Create a slot for all the LogitsProcessors (fancy tools for controlling the model's word choices)
+    # Initialize lists for logits processors and stopping criteria
     tool_tools['LogitsProcessors'] = []
-
-    # Create a slot for StoppingCriteria (the emergency brake for generation)
     tool_tools['StoppingCriteria'] = []
 
-    # Set repetition restrictions (because no one likes repetitive poetry)
+    # Configure n-gram repetition prevention
     if dict_of_tools['no_repeat']:
-        # Prevent n-grams from repeating themselves like a broken record
         tool_tools['LogitsProcessors'] = [NoRepeatNGramLogitsProcessor(dict_of_tools['no_repeat'])]
 
-    # Enforce fixed verse size using min/max token length (poetry with rules is still poetry)
+    # Configure verse size enforcement
     if dict_of_tools['verse_size']:
-        # Special case for the first verse (get ready to start strong!)
+        # First verse: enforce size from beginning
         if dict_of_tools['current_verse'] == 0:
             tool_tools['LogitsProcessors'].append(
                 MinNewTokensLengthLogitsProcessor(dict_of_tools['input_length'],
-                                                  dict_of_tools['verse_size'] + 1, # Add 1 for the <|endoftext|> token
+                                                  dict_of_tools['verse_size'] + 1,  # +1 for EOS token
                                                   tokenizer.eos_token_id))
             tool_tools['LogitsProcessors'].append(
                 ForcedEOSTokenLogitsProcessor(dict_of_tools['verse_size'] + 1,
                                               tokenizer.eos_token_id))
-        # For subsequent verses (because consistency matters... sometimes)
+        # Subsequent verses: account for cumulative input length
         else:
             tool_tools['LogitsProcessors'].append(
                 MinNewTokensLengthLogitsProcessor(dict_of_tools['input_length'],
@@ -46,43 +51,57 @@ def get_tool_tools(dict_of_tools, tokenizer, vocab):
                 ForcedEOSTokenLogitsProcessor(dict_of_tools['verse_size'] + dict_of_tools['input_length'] + 1,
                                               tokenizer.eos_token_id))
     else:
-        # If no verse size is specified and it's not the first verse, set a minimum token length
+        # No verse size specified: enforce minimum length for non-first verses
         if dict_of_tools['current_verse'] != 0:
             tool_tools['LogitsProcessors'].append(
                 MinNewTokensLengthLogitsProcessor(dict_of_tools['input_length'],
-                                                  2, # Minimum 2 tokens (because a verse with 1 word isn't impressive)
+                                                  2,  # Minimum 2 tokens
                                                   tokenizer.eos_token_id))
 
-    # Apply semantic restrictions (aka the "poetry police")
+    # Add semantic similarity wave modulation if configured
     if dict_of_tools['cos_sim']:
         tool_tools['LogitsProcessors'].append(
-            MasterLogits(dict_of_tools, vocab, tokenizer)) # The brains behind semantic similarity magic
+            MasterLogits(dict_of_tools, vocab, tokenizer))
 
-    # Set stopping criteria (stop when <|endoftext|> shows up — because all things good come to an end)
+    # Configure EOS token stopping criteria
     tool_tools['StoppingCriteria'].append(
         EndCriteria(tokenizer.eos_token_id))
 
-    return tool_tools # Return the fully loaded toolbox, ready for action
+    return tool_tools
 
 
-def generator(prompt, active_tools, tokenizer, vocab, model):
+def generator(prompt, active_tools, tokenizer, vocab, model, stream=False):
+    """
+    Generates multi-verse poetry using beam search with custom logits processors.
 
-    # Number of beams to track during the beam search algorithm (more beams = wider search space)
-    num_beams = 10
-    # Number of beams to return after the search
-    num_return_beams = 5
+    Verses are generated sequentially, with each verse continuing from the previous one.
+    The generation process applies semantic similarity wave modulation and other
+    constraints specified in active_tools.
 
-    input = prompt # Start the poem with the initial prompt
-    poem = {} # This dictionary will hold our poetic masterpiece
+    Args:
+        prompt (str): Initial text to start the poem generation.
+        active_tools (dict): Configuration dictionary containing generation parameters.
+        tokenizer: Tokenizer for encoding/decoding text.
+        vocab (dict): Complete vocabulary dictionary.
+        model: GPT-2 language model for text generation.
+        stream (bool): If True, yields verses as they're generated. If False, returns complete poem dict.
 
-    for num_verse in range(active_tools['num_verses']):  # Generate multiple verses as specified
-        # Keep track of which verse we're working on (important for tools that need context)
+    Returns/Yields:
+        If stream=False: dict with keys 'VERSE {n}' containing decoded text and 'VERSE {n} tokens' containing token IDs
+        If stream=True: yields tuples of (verse_num, verse_text, verse_tokens) for each verse
+    """
+    # Beam search configuration
+    input_text = prompt
+    poem = {}
+
+    for num_verse in range(active_tools['num_verses']):
+        # Update verse tracking for context-aware processors
         active_tools['current_verse'] = num_verse
 
-        # Convert the input prompt into token IDs the model can understand
-        prompt_tokenized = tokenizer(input, return_tensors='pt' )['input_ids']
+        # Tokenize current input
+        prompt_tokenized = tokenizer(input_text, return_tensors='pt')['input_ids']
 
-        # Get custom settings for logits processing and stopping criteria (for controlling generation rules)
+        # Configure logits processors and stopping criteria
         tool_tools = get_tool_tools(active_tools, tokenizer, vocab)
         logits_processor = LogitsProcessorList(tool_tools['LogitsProcessors'])
         stopping_criteria = StoppingCriteriaList(tool_tools['StoppingCriteria'])
@@ -91,42 +110,47 @@ def generator(prompt, active_tools, tokenizer, vocab, model):
         generated = model.generate(
             prompt_tokenized,
             max_length=max_length,
-            num_beams=num_beams,
+            num_beams=NUM_BEAMS,
             logits_processor=logits_processor,
             stopping_criteria=stopping_criteria,
-            pad_token_id=0
+            pad_token_id=PAD_TOKEN_ID
         )
 
-        # Save the raw predictions (all beams)
+        # Store all beam predictions
         predictions = generated
 
-        # Clean up predictions by truncating tokens at <|endoftext|> (50256 is the magic token ID for that)
+        # Truncate at EOS token if present
         try:
-            clean_predictions = [beam.tolist()[0:beam.tolist().index(50256)] for beam in predictions]
+            clean_predictions = [beam.tolist()[0:beam.tolist().index(EOS_TOKEN_ID)] for beam in predictions]
         except ValueError:
             clean_predictions = [beam.tolist() for beam in predictions]
 
-        # Grab the best beam (the one with the highest score)
+        # Select best beam (index 0)
         verse_tokens = clean_predictions[0]
 
-        # Remove <|endoftext|> for smooth continuation into the next verse
+        # Prepare input for next verse by removing EOS token
         try:
-            input = tokenizer.decode(verse_tokens[0:verse_tokens.index(50256)])
-        except ValueError as e: # If <|endoftext|> isn't found, decode all tokens
-            input = tokenizer.decode(verse_tokens)
+            input_text = tokenizer.decode(verse_tokens[0:verse_tokens.index(EOS_TOKEN_ID)])
+        except ValueError:
+            input_text = tokenizer.decode(verse_tokens)
 
-        # Update the length of the current input to track how far we've generated
+        # Update input length for next iteration
         active_tools['input_length'] = len(verse_tokens)
 
-        # Decode the tokens into human-readable poetry (exclude the prompt for subsequent verses)
-        if num_verse == 0: # For the first verse, decode the entire thing
+        # Decode verse text (exclude original prompt for subsequent verses)
+        if num_verse == 0:
             verse = tokenizer.decode(verse_tokens)
-        else: # For later verses, exclude the initial prompt tokens
+        else:
             verse = tokenizer.decode(verse_tokens[len(prompt_tokenized[0]):])
 
-        # Save the decoded verse and its tokenized version into the poem dictionary
+        # Store verse text and tokens
         poem[f'VERSE {num_verse}'] = verse
         poem[f'VERSE {num_verse} tokens'] = verse_tokens
 
-    # Return the final poetic creation, complete with tokens for each verse (for debugging or further processing)
-    return poem
+        # If streaming, yield the verse immediately
+        if stream:
+            yield (num_verse, verse, verse_tokens)
+
+    # If not streaming, return complete poem dict
+    if not stream:
+        return poem
