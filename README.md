@@ -1,15 +1,15 @@
 # WOPE - AI Poetry Generator
 
-**WOPE** (Word OPErator) is an AI-powered tool that creates unique poems by blending semantic concepts together. It uses advanced language models to generate creative verse with customizable themes and patterns.
+**WOPE** (Waved Output for Poetic Experimentation) is an AI-powered tool for interactive poetry composition that generates unique texts by blending semantic concepts together. It uses language models to render creative verse with customizable themes and patterns.
 
 ## What Does It Do?
 
 WOPE generates poetry by:
 - Taking two "semantic words" (themes or concepts) you choose
-- Weaving these concepts throughout the poem in wave-like patterns
+- Pushes these domains throughout the poem in wave-like patterns
 - Creating multiple verses with controlled rhythm and structure
 
-For example, you might choose "ocean" and "memory" - WOPE will generate a poem that rhythmically alternates between these concepts, creating interesting thematic interplay.
+For example, you might choose "ocean" and "memory" - WOPE will generate a poem that alternates between these concepts, creating interesting thematic interplay.
 
 ## Quick Start
 
@@ -68,32 +68,6 @@ Then open your browser to: **http://localhost:8501**
 **Bold experimentation:**
 - Word 1: "chaos", Intensity: 8, Period: 2
 - Word 2: "silence", Intensity: 9, Period: 3
-
-## Technical Details
-
-### Architecture
-
-WOPE implements a novel approach to controlled text generation through semantic wave modulation:
-
-**Core Technologies:**
-- **GPT-2 Language Model**: Foundation for text generation
-- **PyTorch**: Tensor operations and neural network components
-- **Semantic Embeddings**: Word2Vec-style similarity using GPT-2's embedding layer
-- **Custom Logits Processors**: Real-time manipulation of token probabilities
-- **CMU Pronouncing Dictionary**: Vocabulary filtering for pronounceable output
-
-**Key Features:**
-- **Lazy Model Loading**: Streamlit caching for fast session management
-- **Beam Search Generation**: 10 beams for diverse, high-quality outputs
-- **Wave Modulation**: Periodic boosting of semantically similar tokens
-- **Stateful Generation**: Sequential verse generation with context preservation
-- **Error Handling**: Comprehensive logging and graceful degradation
-
-**Performance:**
-- No TensorFlow dependency (pure PyTorch/NumPy)
-- Optimized Docker builds with model pre-caching
-- Efficient sparse tensor operations
-- Configurable through centralized constants
 
 ## Research Background
 
